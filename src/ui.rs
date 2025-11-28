@@ -356,6 +356,57 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     lines.push(Line::from(line));
                 }
             }
+
+            // Show image attachment indicators
+            let image_attachments: Vec<_> = msg.attachments.iter()
+                .filter(|a| a.is_image())
+                .collect();
+            
+            if !image_attachments.is_empty() {
+                for attachment in image_attachments {
+                    let name = attachment.name.as_deref().unwrap_or("image");
+                    let indicator = format!("📷 [Image: {}]", name);
+                    
+                    if is_me {
+                        // Right aligned image indicator
+                        let padding = width.saturating_sub(indicator.len());
+                        let pad_str = " ".repeat(padding);
+                        lines.push(Line::from(vec![
+                            Span::raw(pad_str),
+                            Span::styled(indicator, Style::default().fg(Color::Magenta)),
+                        ]));
+                    } else {
+                        // Left aligned image indicator
+                        lines.push(Line::from(vec![
+                            Span::styled(indicator, Style::default().fg(Color::Magenta)),
+                        ]));
+                    }
+                }
+            }
+
+            // Show non-image attachment indicators
+            let other_attachments: Vec<_> = msg.attachments.iter()
+                .filter(|a| !a.is_image() && a.name.is_some())
+                .collect();
+            
+            for attachment in other_attachments {
+                if let Some(name) = &attachment.name {
+                    let indicator = format!("📎 [Attachment: {}]", name);
+                    
+                    if is_me {
+                        let padding = width.saturating_sub(indicator.len());
+                        let pad_str = " ".repeat(padding);
+                        lines.push(Line::from(vec![
+                            Span::raw(pad_str),
+                            Span::styled(indicator, Style::default().fg(Color::DarkGray)),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::styled(indicator, Style::default().fg(Color::DarkGray)),
+                        ]));
+                    }
+                }
+            }
         }
         
         lines

@@ -34,6 +34,8 @@ pub struct Message {
     pub created_date_time: String,
     pub from: Option<MessageFrom>,
     pub body: Option<MessageBody>,
+    #[serde(default)]
+    pub attachments: Vec<MessageAttachment>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,6 +52,53 @@ pub struct MessageUser {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MessageBody {
     pub content: Option<String>,
+    #[serde(rename = "contentType")]
+    pub content_type: Option<String>,
+}
+
+/// Attachment in a chat message
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MessageAttachment {
+    /// Unique identifier for the attachment
+    pub id: Option<String>,
+    /// Type of the attachment content (e.g., "reference", "image/png", etc.)
+    #[serde(rename = "contentType")]
+    pub content_type: Option<String>,
+    /// URL where the content can be downloaded
+    #[serde(rename = "contentUrl")]
+    pub content_url: Option<String>,
+    /// Display name of the attachment
+    pub name: Option<String>,
+    /// Thumbnail URL for image attachments
+    #[serde(rename = "thumbnailUrl")]
+    pub thumbnail_url: Option<String>,
+}
+
+impl MessageAttachment {
+    /// Check if this attachment is an image
+    pub fn is_image(&self) -> bool {
+        if let Some(content_type) = &self.content_type {
+            let ct_lower = content_type.to_lowercase();
+            ct_lower.starts_with("image/")
+                || ct_lower == "reference" && self.name.as_ref().map_or(false, |n| {
+                    let n_lower = n.to_lowercase();
+                    n_lower.ends_with(".png")
+                        || n_lower.ends_with(".jpg")
+                        || n_lower.ends_with(".jpeg")
+                        || n_lower.ends_with(".gif")
+                        || n_lower.ends_with(".webp")
+                        || n_lower.ends_with(".bmp")
+                })
+        } else {
+            false
+        }
+    }
+
+    /// Get the URL to use for downloading/displaying the image
+    pub fn get_image_url(&self) -> Option<&str> {
+        // Prefer thumbnail for smaller download, fall back to full content
+        self.thumbnail_url.as_deref().or(self.content_url.as_deref())
+    }
 }
 
 #[derive(Debug, Deserialize)]

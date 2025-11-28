@@ -3,6 +3,7 @@ mod ui;
 mod auth;
 mod api;
 pub mod config;
+pub mod image_display;
 
 use std::io;
 use anyhow::Result;
