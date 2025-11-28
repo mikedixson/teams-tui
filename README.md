@@ -109,3 +109,6 @@ If at some point you want/need to re-authenticate, just delete the `token.json` 
 ## License
 
 TeamsTUI is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## Thanks For Visiting
+Hope you liked it. Wanna **[buy Me a coffee](https://www.buymeacoffee.com/nospor)**?
