@@ -83,10 +83,12 @@ impl ImageCache {
     }
 
     /// Insert an image into the cache
+    /// Note: When capacity is exceeded, an arbitrary entry is removed (not necessarily oldest)
+    /// since HashMap doesn't maintain insertion order.
     pub fn insert(&mut self, url: String, image: DynamicImage) {
-        // Simple cache eviction: remove oldest entries if over capacity
+        // Simple cache eviction: remove an arbitrary entry if over capacity
         if self.images.len() >= self.max_size {
-            // Remove first entry (not ideal but simple)
+            // Remove an arbitrary entry (HashMap iteration order is not guaranteed)
             if let Some(key) = self.images.keys().next().cloned() {
                 self.images.remove(&key);
             }

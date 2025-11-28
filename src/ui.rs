@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 use crate::app::App;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -368,8 +369,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     let indicator = format!("📷 [Image: {}]", name);
                     
                     if is_me {
-                        // Right aligned image indicator
-                        let padding = width.saturating_sub(indicator.len());
+                        // Right aligned image indicator - use unicode width for proper alignment
+                        let display_width = indicator.width();
+                        let padding = width.saturating_sub(display_width);
                         let pad_str = " ".repeat(padding);
                         lines.push(Line::from(vec![
                             Span::raw(pad_str),
@@ -394,7 +396,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     let indicator = format!("📎 [Attachment: {}]", name);
                     
                     if is_me {
-                        let padding = width.saturating_sub(indicator.len());
+                        // Use unicode width for proper alignment
+                        let display_width = indicator.width();
+                        let padding = width.saturating_sub(display_width);
                         let pad_str = " ".repeat(padding);
                         lines.push(Line::from(vec![
                             Span::raw(pad_str),

@@ -76,10 +76,17 @@ pub struct MessageAttachment {
 
 impl MessageAttachment {
     /// Check if this attachment is an image
+    /// 
+    /// Microsoft Teams uses "reference" content type for file attachments (including images)
+    /// that are stored in SharePoint/OneDrive. We check the file extension for these
+    /// reference-type attachments to determine if they are images.
     pub fn is_image(&self) -> bool {
         if let Some(content_type) = &self.content_type {
             let ct_lower = content_type.to_lowercase();
+            // Direct image MIME types
             ct_lower.starts_with("image/")
+                // Teams "reference" type attachments are files stored in SharePoint/OneDrive
+                // We check file extension to identify images
                 || ct_lower == "reference" && self.name.as_ref().map_or(false, |n| {
                     let n_lower = n.to_lowercase();
                     n_lower.ends_with(".png")
