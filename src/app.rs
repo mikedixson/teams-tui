@@ -5,6 +5,7 @@ pub struct App {
     pub status: String,
     pub selected_index: usize,
     pub current_user_name: Option<String>,
+    pub current_user_id: Option<String>,
     pub messages: Vec<Message>,
     pub loading_messages: bool,
     pub input_mode: bool,
@@ -21,6 +22,7 @@ impl App {
             status: "Loading...".to_string(),
             selected_index: 0,
             current_user_name: None,
+            current_user_id: None,
             messages: Vec::new(),
             loading_messages: false,
             input_mode: false,
@@ -36,8 +38,9 @@ impl App {
         self.status = format!("Loaded {} chats", self.chats.len());
     }
 
-    pub fn set_current_user(&mut self, name: String) {
+    pub fn set_current_user(&mut self, name: String, id: String) {
         self.current_user_name = Some(name);
+        self.current_user_id = Some(id);
     }
 
     pub fn set_messages(&mut self, messages: Vec<Message>) {

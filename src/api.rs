@@ -5,6 +5,59 @@ use std::path::PathBuf;
 
 const GRAPH_API_BASE: &str = "https://graph.microsoft.com/v1.0";
 
+/// Extract tenant ID from a JWT access token by decoding the payload
+fn extract_tenant_id_from_token(access_token: &str) -> Option<String> {
+    // JWT format: header.payload.signature
+    let parts: Vec<&str> = access_token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    // Decode the payload (second part) from base64
+    let payload = parts[1];
+    // JWT uses base64url encoding, we need to handle padding
+    let padding = (4 - payload.len() % 4) % 4;
+    let padded_payload = format!("{}{}", payload, "=".repeat(padding));
+    
+    // Replace URL-safe characters with standard base64 characters
+    let standard_base64 = padded_payload.replace('-', "+").replace('_', "/");
+    
+    // Decode base64
+    let decoded = base64_decode(&standard_base64)?;
+    let payload_str = String::from_utf8(decoded).ok()?;
+    
+    // Parse JSON and extract tid claim
+    let payload_json: serde_json::Value = serde_json::from_str(&payload_str).ok()?;
+    payload_json.get("tid")?.as_str().map(|s| s.to_string())
+}
+
+/// Simple base64 decoder
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    
+    let mut result = Vec::new();
+    let mut buffer: u32 = 0;
+    let mut bits_collected: u8 = 0;
+    
+    for c in input.chars() {
+        if c == '=' {
+            break;
+        }
+        
+        let val = BASE64_CHARS.iter().position(|&b| b as char == c)? as u32;
+        buffer = (buffer << 6) | val;
+        bits_collected += 6;
+        
+        if bits_collected >= 8 {
+            bits_collected -= 8;
+            result.push((buffer >> bits_collected) as u8);
+            buffer &= (1 << bits_collected) - 1;
+        }
+    }
+    
+    Some(result)
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMember {
     pub id: Option<String>,
@@ -216,6 +269,53 @@ pub async fn send_message(access_token: &str, chat_id: &str, content: &str) -> R
         let status = response.status();
         let text = response.text().await?;
         anyhow::bail!("Failed to send message: {} - {}", status, text);
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct MarkChatReadRequest {
+    user: MarkChatReadUser,
+}
+
+#[derive(Debug, Serialize)]
+struct MarkChatReadUser {
+    id: String,
+    #[serde(rename = "tenantId")]
+    tenant_id: String,
+}
+
+/// Mark a chat as read for the current user
+/// This uses the Microsoft Graph API: POST /chats/{chat-id}/markChatReadForUser
+pub async fn mark_chat_read_for_user(access_token: &str, chat_id: &str, user_id: &str) -> Result<()> {
+    // Extract tenant ID from the access token
+    let tenant_id = extract_tenant_id_from_token(access_token)
+        .context("Failed to extract tenant ID from access token")?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/chats/{}/markChatReadForUser", GRAPH_API_BASE, chat_id);
+
+    let request_body = MarkChatReadRequest {
+        user: MarkChatReadUser {
+            id: user_id.to_string(),
+            tenant_id,
+        },
+    };
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await?;
+
+    // The API returns 204 No Content on success
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await?;
+        anyhow::bail!("Failed to mark chat as read: {} - {}", status, text);
     }
 
     Ok(())

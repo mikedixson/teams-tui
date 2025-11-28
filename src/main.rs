@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     let mut app = App::new();
     app.set_chats(chats);
     if let Some(user) = current_user {
-        app.set_current_user(user.display_name);
+        app.set_current_user(user.display_name, user.id);
     }
 
     // Run app
@@ -121,12 +121,17 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
         let chat_id = chat.id.clone();
         let chat_index = app.selected_index;
         let tx_clone = tx.clone();
+        let user_id = app.current_user_id.clone();
         
         app.set_loading_messages(true);
         tokio::spawn(async move {
             if let Ok(token) = auth::get_valid_token_silent().await {
                 if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                     let _ = tx_clone.send((chat_index, messages));
+                    // Mark chat as read after viewing messages
+                    if let Some(uid) = user_id {
+                        let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                    }
                 }
             }
         });
@@ -149,11 +154,16 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                     let tx_clone = tx.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
+                    let user_id = app.current_user_id.clone();
                     
                     tokio::spawn(async move {
                         if let Ok(token) = auth::get_valid_token_silent().await {
                             if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                                 let _ = tx_clone.send((chat_index, messages));
+                                // Mark chat as read after viewing messages
+                                if let Some(uid) = user_id {
+                                    let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                                }
                             }
                         }
                     });
@@ -267,6 +277,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                         let chat_id = chat.id.clone();
                         let chat_index = app.selected_index;
                         let tx_clone = tx.clone();
+                        let user_id = app.current_user_id.clone();
                         
                         app.set_loading_messages(true);
                         app.set_messages(Vec::new()); // Clear old messages immediately
@@ -276,6 +287,10 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                             if let Ok(token) = auth::get_valid_token_silent().await {
                                 if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                                     let _ = tx_clone.send((chat_index, messages));
+                                    // Mark chat as read after viewing messages
+                                    if let Some(uid) = user_id {
+                                        let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                                    }
                                 }
                             }
                         });
