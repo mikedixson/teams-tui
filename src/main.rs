@@ -130,7 +130,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                     let _ = tx_clone.send((chat_index, messages));
                     // Mark chat as read after viewing messages
                     if let Some(uid) = user_id {
-                        let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                        if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
+                            eprintln!("Failed to mark chat as read: {}", e);
+                        }
                     }
                 }
             }
@@ -162,7 +164,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                                 let _ = tx_clone.send((chat_index, messages));
                                 // Mark chat as read after viewing messages
                                 if let Some(uid) = user_id {
-                                    let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                                    if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
+                                        eprintln!("Failed to mark chat as read: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -289,7 +293,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                                     let _ = tx_clone.send((chat_index, messages));
                                     // Mark chat as read after viewing messages
                                     if let Some(uid) = user_id {
-                                        let _ = api::mark_chat_read_for_user(&token, &chat_id, &uid).await;
+                                        if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
+                                            eprintln!("Failed to mark chat as read: {}", e);
+                                        }
                                     }
                                 }
                             }

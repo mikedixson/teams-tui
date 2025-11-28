@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -13,49 +14,14 @@ fn extract_tenant_id_from_token(access_token: &str) -> Option<String> {
         return None;
     }
 
-    // Decode the payload (second part) from base64
+    // Decode the payload (second part) from base64url
     let payload = parts[1];
-    // JWT uses base64url encoding, we need to handle padding
-    let padding = (4 - payload.len() % 4) % 4;
-    let padded_payload = format!("{}{}", payload, "=".repeat(padding));
-    
-    // Replace URL-safe characters with standard base64 characters
-    let standard_base64 = padded_payload.replace('-', "+").replace('_', "/");
-    
-    // Decode base64
-    let decoded = base64_decode(&standard_base64)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
     let payload_str = String::from_utf8(decoded).ok()?;
     
     // Parse JSON and extract tid claim
     let payload_json: serde_json::Value = serde_json::from_str(&payload_str).ok()?;
     payload_json.get("tid")?.as_str().map(|s| s.to_string())
-}
-
-/// Simple base64 decoder
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
-    let mut result = Vec::new();
-    let mut buffer: u32 = 0;
-    let mut bits_collected: u8 = 0;
-    
-    for c in input.chars() {
-        if c == '=' {
-            break;
-        }
-        
-        let val = BASE64_CHARS.iter().position(|&b| b as char == c)? as u32;
-        buffer = (buffer << 6) | val;
-        bits_collected += 6;
-        
-        if bits_collected >= 8 {
-            bits_collected -= 8;
-            result.push((buffer >> bits_collected) as u8);
-            buffer &= (1 << bits_collected) - 1;
-        }
-    }
-    
-    Some(result)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
