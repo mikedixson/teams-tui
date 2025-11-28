@@ -124,7 +124,7 @@ The application requires a Client ID from Azure AD. Configure it via:
 
 ### Testing
 
-Currently, the project does not have automated tests. When adding tests:
+The project currently has no test files or test infrastructure. When adding tests in the future:
 
 - Use `#[tokio::test]` for async tests
 - Mock HTTP responses for API tests
@@ -180,10 +180,11 @@ cargo fmt --check
 
 ### Required Permissions (Delegated)
 
+The application uses the following OAuth2 scopes (defined in `auth.rs`):
+
 - `User.Read` - Read user profile
-- `Chat.Read` - Read chats
-- `Chat.ReadWrite` - Send messages
-- `offline_access` - Refresh tokens
+- `Chat.ReadWrite` - Read and send chat messages
+- `offline_access` - Refresh tokens (enables persistent login)
 
 ## Keyboard Controls
 
