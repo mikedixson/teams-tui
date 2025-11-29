@@ -228,23 +228,20 @@ async fn run_app(
                                     app.snap_to_bottom = true;
                                     tokio::spawn(async move {
                                         if let Ok(token) = auth::get_valid_token_silent().await {
-                                            match api::send_message(&token, &chat_id, &message)
+                                            if api::send_message(&token, &chat_id, &message)
                                                 .await
+                                                .is_ok()
                                             {
-                                                Ok(_) => {
-                                                    // Reload messages
-                                                    if let Ok(messages) =
-                                                        api::get_messages(&token, &chat_id).await
-                                                    {
-                                                        let _ = tx.send((chat_index, messages));
-                                                    }
-                                                    // Refresh chat list to update last message preview
-                                                    if let Ok(chats) = api::get_chats(&token).await
-                                                    {
-                                                        let _ = tx_chats.send(chats);
-                                                    }
+                                                // Reload messages
+                                                if let Ok(messages) =
+                                                    api::get_messages(&token, &chat_id).await
+                                                {
+                                                    let _ = tx.send((chat_index, messages));
                                                 }
-                                                Err(_) => {}
+                                                // Refresh chat list to update last message preview
+                                                if let Ok(chats) = api::get_chats(&token).await {
+                                                    let _ = tx_chats.send(chats);
+                                                }
                                             }
                                         }
                                     });
