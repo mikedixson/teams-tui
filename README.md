@@ -78,6 +78,9 @@ teams-tui
 - `↓` / `j` - Move down  
 - `PgUp` / `PgDn` - Scroll chat
 - `i` - Compose message
+- `v` - View images (when images are available)
+- `←` / `→` or `h` / `l` - Navigate between images (in image viewer)
+- `ESC` - Close image viewer / Cancel input
 - `q` - Quit
 
 ## Requirements
@@ -117,7 +120,12 @@ TeamsTUI supports displaying images using the [ratatui-image](https://github.com
 - **iTerm2** - For iTerm2 on macOS, WezTerm, and Rio
 - **Halfblocks** - Unicode fallback for terminals without graphics support
 
-The terminal protocol is automatically detected at startup. Image attachments in messages are currently displayed with indicators (📷 [Image: filename]), with the infrastructure in place for full inline image rendering.
+The terminal protocol is automatically detected at startup. When messages contain image attachments:
+1. An indicator (📷 [Image: filename]) is shown in the message
+2. The status bar shows how many images are available
+3. Press `v` to open the image viewer and display the actual image
+4. Use `←`/`→` or `h`/`l` to navigate between images
+5. Press `ESC` to close the viewer
 
 ## License
 

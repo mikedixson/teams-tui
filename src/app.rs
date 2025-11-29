@@ -3,6 +3,13 @@ use crate::image_display::{ImageCache, ImagePicker};
 use ratatui_image::protocol::StatefulProtocol;
 use std::collections::HashMap;
 
+/// Represents an image that can be viewed
+#[derive(Clone)]
+pub struct ViewableImage {
+    pub name: String,
+    pub url: String,
+}
+
 pub struct App {
     pub chats: Vec<Chat>,
     pub status: String,
@@ -21,6 +28,16 @@ pub struct App {
     pub image_cache: ImageCache,
     /// Prepared image protocols ready for rendering (keyed by attachment URL)
     pub image_protocols: HashMap<String, StatefulProtocol>,
+    /// Image viewing mode - when Some, display the image viewer
+    pub viewing_image: Option<ViewableImage>,
+    /// Current image protocol for viewing
+    pub current_image_protocol: Option<StatefulProtocol>,
+    /// Whether we're currently loading an image
+    pub loading_image: bool,
+    /// List of viewable images in current messages
+    pub viewable_images: Vec<ViewableImage>,
+    /// Index of currently selected/viewing image
+    pub selected_image_index: usize,
 }
 
 impl App {
@@ -49,6 +66,11 @@ impl App {
             image_picker,
             image_cache: ImageCache::new(50), // Cache up to 50 images
             image_protocols: HashMap::new(),
+            viewing_image: None,
+            current_image_protocol: None,
+            loading_image: false,
+            viewable_images: Vec::new(),
+            selected_image_index: 0,
         }
     }
 
@@ -64,6 +86,8 @@ impl App {
     pub fn set_messages(&mut self, messages: Vec<Message>) {
         self.messages = messages;
         self.loading_messages = false;
+        // Update viewable images list
+        self.update_viewable_images();
     }
 
     pub fn set_loading_messages(&mut self, loading: bool) {
@@ -79,6 +103,8 @@ impl App {
             self.selected_index = (self.selected_index + 1) % self.chats.len();
             // Clear image protocols when changing chats
             self.image_protocols.clear();
+            self.viewable_images.clear();
+            self.selected_image_index = 0;
         }
     }
 
@@ -91,6 +117,8 @@ impl App {
             }
             // Clear image protocols when changing chats
             self.image_protocols.clear();
+            self.viewable_images.clear();
+            self.selected_image_index = 0;
         }
     }
 
@@ -110,5 +138,75 @@ impl App {
     /// Check if an image is ready for rendering
     pub fn has_prepared_image(&self, url: &str) -> bool {
         self.image_protocols.contains_key(url)
+    }
+
+    /// Update the list of viewable images from current messages
+    fn update_viewable_images(&mut self) {
+        self.viewable_images.clear();
+        for msg in &self.messages {
+            for attachment in &msg.attachments {
+                if attachment.is_image() {
+                    if let Some(url) = attachment.get_image_url() {
+                        self.viewable_images.push(ViewableImage {
+                            name: attachment.name.clone().unwrap_or_else(|| "image".to_string()),
+                            url: url.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        self.selected_image_index = 0;
+    }
+
+    /// Check if we're currently viewing an image
+    pub fn is_viewing_image(&self) -> bool {
+        self.viewing_image.is_some()
+    }
+
+    /// Start viewing an image
+    pub fn start_viewing_image(&mut self, image: ViewableImage) {
+        self.viewing_image = Some(image);
+        self.loading_image = true;
+        self.current_image_protocol = None;
+    }
+
+    /// Set the loaded image protocol for viewing
+    pub fn set_image_protocol(&mut self, protocol: StatefulProtocol) {
+        self.current_image_protocol = Some(protocol);
+        self.loading_image = false;
+    }
+
+    /// Stop viewing the current image
+    pub fn stop_viewing_image(&mut self) {
+        self.viewing_image = None;
+        self.current_image_protocol = None;
+        self.loading_image = false;
+    }
+
+    /// Get the current viewable image if any
+    pub fn get_current_viewable_image(&self) -> Option<&ViewableImage> {
+        if self.viewable_images.is_empty() {
+            None
+        } else {
+            self.viewable_images.get(self.selected_image_index)
+        }
+    }
+
+    /// Move to next image in the list
+    pub fn next_image(&mut self) {
+        if !self.viewable_images.is_empty() {
+            self.selected_image_index = (self.selected_image_index + 1) % self.viewable_images.len();
+        }
+    }
+
+    /// Move to previous image in the list
+    pub fn previous_image(&mut self) {
+        if !self.viewable_images.is_empty() {
+            if self.selected_image_index > 0 {
+                self.selected_image_index -= 1;
+            } else {
+                self.selected_image_index = self.viewable_images.len() - 1;
+            }
+        }
     }
 }

@@ -1,10 +1,11 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
+use ratatui_image::StatefulImage;
 use unicode_width::UnicodeWidthStr;
 use crate::app::App;
 
@@ -484,8 +485,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ));
     }
 
-    // Status bar
-    let status = Paragraph::new(app.status.as_str())
+    // Status bar - show image count if available
+    let status_text = if !app.viewable_images.is_empty() {
+        format!("{} | {} image(s) available - press 'v' to view", app.status, app.viewable_images.len())
+    } else {
+        app.status.clone()
+    };
+    
+    let status = Paragraph::new(status_text)
         .block(
             Block::default()
                 .title("Status")
@@ -494,4 +501,66 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .style(Style::default().fg(Color::Green));
 
     f.render_widget(status, main_chunks[1]);
+
+    // Image viewer overlay
+    if app.is_viewing_image() {
+        render_image_viewer(f, app);
+    }
+}
+
+/// Render image viewer as a centered popup overlay
+fn render_image_viewer(f: &mut Frame, app: &mut App) {
+    let area = f.area();
+    
+    // Create a centered popup that takes 80% of the screen
+    let popup_width = (area.width as f32 * 0.8) as u16;
+    let popup_height = (area.height as f32 * 0.8) as u16;
+    let popup_x = (area.width - popup_width) / 2;
+    let popup_y = (area.height - popup_height) / 2;
+    
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+    
+    // Clear the popup area first
+    f.render_widget(Clear, popup_area);
+    
+    // Get image name for title
+    let title = if let Some(ref img) = app.viewing_image {
+        let nav_hint = if app.viewable_images.len() > 1 {
+            format!(" ({}/{}) - ←/→ to navigate, ESC to close", 
+                app.selected_image_index + 1, 
+                app.viewable_images.len())
+        } else {
+            " - ESC to close".to_string()
+        };
+        format!("Image: {}{}", img.name, nav_hint)
+    } else {
+        "Image Viewer - ESC to close".to_string()
+    };
+    
+    // Create the block for the popup
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+    
+    // Get the inner area for the image
+    let inner_area = block.inner(popup_area);
+    
+    // Render the block
+    f.render_widget(block, popup_area);
+    
+    // Render image or loading/error message
+    if app.loading_image {
+        let loading = Paragraph::new("Loading image...")
+            .style(Style::default().fg(Color::Yellow));
+        f.render_widget(loading, inner_area);
+    } else if let Some(ref mut protocol) = app.current_image_protocol {
+        // Render the actual image using StatefulImage
+        let image_widget = StatefulImage::default();
+        f.render_stateful_widget(image_widget, inner_area, protocol);
+    } else {
+        let error = Paragraph::new("Failed to load image or no image selected")
+            .style(Style::default().fg(Color::Red));
+        f.render_widget(error, inner_area);
+    }
 }
