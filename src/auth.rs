@@ -49,7 +49,25 @@ fn get_client_id() -> String {
     "d3590ed6-52b3-4102-aeff-aad2292ab01c".to_string()
 }
 
-const TENANT: &str = "common";
+fn get_tenant() -> String {
+    // 1. Try env var
+    dotenv::dotenv().ok();
+    if let Ok(id) = std::env::var("TENANT_ID") {
+        return id;
+    }
+
+    // 2. Try config file
+    if let Some(config) = load_config() {
+        if let Some(id) = config.tenant_id {
+            return id;
+        }
+    }
+
+    // 3. Fallback
+    eprintln!("Info: TENANT_ID not found in environment or config, using 'common' fallback.");
+    "common".to_string()
+}
+
 const SCOPES: &str = "User.Read Chat.ReadWrite offline_access";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,9 +130,10 @@ fn load_token() -> Result<Option<TokenResponse>> {
 
 pub async fn start_device_flow() -> Result<DeviceCodeResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/devicecode",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
@@ -150,9 +169,10 @@ pub async fn start_device_flow() -> Result<DeviceCodeResponse> {
 
 pub async fn poll_for_token(device_code: &str, interval: u64) -> Result<TokenResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
@@ -231,9 +251,10 @@ pub async fn get_access_token() -> Result<String> {
 
 async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
