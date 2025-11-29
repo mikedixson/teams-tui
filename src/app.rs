@@ -1,12 +1,4 @@
 use crate::api::{Chat, Message};
-use ratatui::layout::Rect;
-
-/// Represents which pane is currently focused for mouse/keyboard interaction
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ActivePane {
-    ChatList,
-    Messages,
-}
 
 pub struct App {
     pub chats: Vec<Chat>,
@@ -20,9 +12,6 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
-    pub active_pane: ActivePane,
-    pub chat_list_area: Rect,
-    pub messages_area: Rect,
 }
 
 impl App {
@@ -39,9 +28,6 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
-            active_pane: ActivePane::ChatList,
-            chat_list_area: Rect::default(),
-            messages_area: Rect::default(),
         }
     }
 
@@ -80,6 +66,25 @@ impl App {
             } else {
                 self.selected_index = self.chats.len() - 1;
             }
+        }
+    }
+
+    pub fn toggle_focus(&mut self) {
+        self.focused_pane = match self.focused_pane {
+            FocusedPane::ChatList => FocusedPane::Messages,
+            FocusedPane::Messages => FocusedPane::ChatList,
+        };
+    }
+
+    pub fn scroll_messages_up(&mut self) {
+        self.snap_to_bottom = false;
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    }
+
+    pub fn scroll_messages_down(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_add(1);
+        if self.scroll_offset >= self.max_scroll {
+            self.snap_to_bottom = true;
         }
     }
 }
