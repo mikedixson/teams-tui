@@ -7,7 +7,7 @@ pub mod config;
 use std::io;
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -194,6 +194,12 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
         // Use poll with timeout to allow checking for messages
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
+                // Only process key press events, not release or repeat
+                // This is especially important on Windows where all key event types are reported
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+                
                 let previous_index = app.selected_index;
                 
                 match key.code {
