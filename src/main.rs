@@ -276,8 +276,39 @@ async fn run_app(
                     // Normal key handling
                     match key.code {
                         KeyCode::Char('q') if !app.input_mode => return Ok(()),
-                        KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
-                        KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
+                        KeyCode::Tab if !app.input_mode => {
+                            // Toggle focused pane
+                            app.focused_pane = match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => {
+                                    crate::app::FocusedPane::Messages
+                                }
+                                crate::app::FocusedPane::Messages => {
+                                    crate::app::FocusedPane::ChatList
+                                }
+                            };
+                        }
+                        KeyCode::Down | KeyCode::Char('j') if !app.input_mode => {
+                            match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => app.next_chat(),
+                                crate::app::FocusedPane::Messages => {
+                                    // Scroll messages down
+                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
+                                    if app.scroll_offset >= app.max_scroll {
+                                        app.snap_to_bottom = true;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') if !app.input_mode => {
+                            match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => app.previous_chat(),
+                                crate::app::FocusedPane::Messages => {
+                                    // Scroll messages up
+                                    app.snap_to_bottom = false;
+                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                                }
+                            }
+                        }
                         KeyCode::Char('v') if !app.input_mode => {
                             // View image - open image viewer if images are available
                             if let Some(img) = app.get_current_viewable_image().cloned() {
