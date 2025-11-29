@@ -13,6 +13,7 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
+    pub debug_selected: bool,
 }
 
 impl App {
@@ -30,6 +31,7 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
+            debug_selected: false,
         }
     }
 

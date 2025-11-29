@@ -97,31 +97,39 @@ async fn main() -> Result<()> {
 async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     // Create a channel for receiving loaded messages
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, Vec<api::Message>)>();
-    
+
     // Create a channel for receiving chat updates
     let (tx_chats, mut rx_chats) = tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
 
+    // Create a channel for status messages (errors, info)
+    let (tx_status, mut rx_status) = tokio::sync::mpsc::unbounded_channel::<String>();
+
     // Spawn background task to refresh chats
-    let tx_chats_clone = tx_chats.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            interval.tick().await;
-            if let Ok(token) = auth::get_valid_token_silent().await {
-                if let Ok(result) = api::get_chats(&token).await {
-                    let _ = tx_chats_clone.send(result);
+        let current_user_id: Option<String> = app.current_user_id.clone();
+        {
+            let tx_chats = tx_chats.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval.tick().await;
+                    if let Ok(token) = auth::get_valid_token_silent().await {
+                        if let Ok(result) = api::get_chats(&token).await {
+                            let _ = tx_chats.send(result);
+                        }
+                    }
                 }
-            }
+            });
         }
-    });
     
     // Load messages for the first chat if available
     if let Some(chat) = app.get_selected_chat() {
         let chat_id = chat.id.clone();
         let chat_index = app.selected_index;
         let tx_clone = tx.clone();
-        let user_id = app.current_user_id.clone();
+            let tx_chats = tx_chats.clone();
+        let tx_status_clone = tx_status.clone();
+        let user_id = current_user_id.clone();
         
         app.set_loading_messages(true);
         tokio::spawn(async move {
@@ -130,8 +138,16 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                     let _ = tx_clone.send((chat_index, messages));
                     // Mark chat as read after viewing messages
                     if let Some(uid) = user_id {
-                        if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
-                            eprintln!("Failed to mark chat as read: {}", e);
+                        match api::mark_chat_read_for_user_with_retry(&token, &chat_id, &uid, 3).await {
+                            Ok(_) => {
+                                // After successfully marking read on the server, refresh chats
+                                if let Ok(chats) = api::get_chats(&token).await {
+                                        let _ = tx_chats.send(chats);
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx_status_clone.send(format!("Failed to mark chat as read: {}", e));
+                            }
                         }
                     }
                 }
@@ -139,6 +155,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
         });
     }
     
+    // Clone current_user_id once before the loop to avoid borrow/move errors
+    let current_user_id = app.current_user_id.clone();
+
     loop {
         // Check for chat updates
         while let Ok((chats, _)) = rx_chats.try_recv() {
@@ -150,22 +169,32 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             if let Some(id) = current_chat_id {
                 if let Some(index) = app.chats.iter().position(|c| c.id == id) {
                     app.selected_index = index;
-                    
+
                     // Always refresh messages for the current chat to ensure we get new ones
                     // The check will happen when we receive the messages
                     let tx_clone = tx.clone();
+                    let tx_chats_clone = tx_chats.clone();
+                    let tx_status_clone = tx_status.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
-                    let user_id = app.current_user_id.clone();
-                    
+                    let user_id = current_user_id.clone();
+
                     tokio::spawn(async move {
                         if let Ok(token) = auth::get_valid_token_silent().await {
                             if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                                 let _ = tx_clone.send((chat_index, messages));
                                 // Mark chat as read after viewing messages
                                 if let Some(uid) = user_id {
-                                    if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
-                                        eprintln!("Failed to mark chat as read: {}", e);
+                                    match api::mark_chat_read_for_user_with_retry(&token, &chat_id, &uid, 3).await {
+                                        Ok(_) => {
+                                            // Refresh chats after successful mark
+                                            if let Ok(chats) = api::get_chats(&token).await {
+                                                let _ = tx_chats_clone.send(chats);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = tx_status_clone.send(format!("Failed to mark chat as read: {}", e));
+                                        }
                                     }
                                 }
                             }
@@ -203,6 +232,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             }
         }
         
+        // Check for status messages
+        while let Ok(msg) = rx_status.try_recv() {
+            app.status = msg;
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
         // Use poll with timeout to allow checking for messages
@@ -217,6 +251,21 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                     KeyCode::Char('i') if !app.input_mode => {
                         app.input_mode = true;
                         app.input_buffer.clear();
+                    }
+                    KeyCode::Char('r') if !app.input_mode => {
+                        // Manual refresh: fetch chats immediately
+                        let tx_chats = tx_chats.clone();
+                        tokio::spawn(async move {
+                            if let Ok(token) = auth::get_valid_token_silent().await {
+                                if let Ok(chats) = api::get_chats(&token).await {
+                                    let _ = tx_chats.send(chats);
+                                }
+                            }
+                        });
+                    }
+                    KeyCode::Char('d') if !app.input_mode => {
+                        // Toggle debug view for selected chat timestamps
+                        app.debug_selected = !app.debug_selected;
                     }
                     KeyCode::Esc if app.input_mode => {
                         app.input_mode = false;
@@ -281,20 +330,22 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                         let chat_id = chat.id.clone();
                         let chat_index = app.selected_index;
                         let tx_clone = tx.clone();
-                        let user_id = app.current_user_id.clone();
-                        
+                        let tx_status = tx_status.clone();
+                        let user_id = current_user_id.clone();
+
                         app.set_loading_messages(true);
                         app.set_messages(Vec::new()); // Clear old messages immediately
                         app.snap_to_bottom = true; // Snap to bottom for new chat
-                        
+
                         tokio::spawn(async move {
                             if let Ok(token) = auth::get_valid_token_silent().await {
                                 if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                                     let _ = tx_clone.send((chat_index, messages));
                                     // Mark chat as read after viewing messages
                                     if let Some(uid) = user_id {
-                                        if let Err(e) = api::mark_chat_read_for_user(&token, &chat_id, &uid).await {
-                                            eprintln!("Failed to mark chat as read: {}", e);
+                                        // Use retrying wrapper to handle transient PreconditionFailed (412) errors
+                                        if let Err(e) = api::mark_chat_read_for_user_with_retry(&token, &chat_id, &uid, 3).await {
+                                            let _ = tx_status.send(format!("Failed to mark chat as read: {}", e));
                                         }
                                     }
                                 }
