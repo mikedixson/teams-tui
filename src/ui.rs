@@ -57,17 +57,68 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             let display_name = chat.cached_display_name.as_deref()
                 .unwrap_or("Unknown");
             
-            let style = if i == app.selected_index {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
+            // Determine if chat has unread messages
+            let is_unread = if let Some(viewpoint) = &chat.viewpoint {
+                if let (Some(last_updated), Some(last_read)) = (&chat.last_updated, &viewpoint.last_message_read_date_time) {
+                    // Parse both timestamps and compare
+                    match (chrono::DateTime::parse_from_rfc3339(last_updated), 
+                           chrono::DateTime::parse_from_rfc3339(last_read)) {
+                        (Ok(updated), Ok(read)) => {
+                            let unread = updated > read;
+                            unread
+                        },
+                        _ => false,
+                    }
+                } else {
+                    // If we have last_updated but no last_read, consider it unread
+                    chat.last_updated.is_some() && viewpoint.last_message_read_date_time.is_none()
+                }
             } else {
-                Style::default()
+                false
+            };
+            
+            let (name_style, indicator_style) = if i == app.selected_index {
+                if is_unread {
+                    (
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    )
+                } else {
+                    (
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                    )
+                }
+            } else if is_unread {
+                (
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD)
+                )
+            } else {
+                (
+                    Style::default().fg(Color::Gray),
+                    Style::default().fg(Color::DarkGray)
+                )
             };
 
             let content = Line::from(vec![
+                Span::styled(
+                    if is_unread { "● " } else { "○ " }, 
+                    indicator_style
+                ),
                 Span::styled(format!("[{}] ", chat.chat_type), Style::default().fg(Color::Cyan)),
-                Span::styled(display_name, style),
+                Span::styled(display_name, name_style),
             ]);
             
             ListItem::new(content)
@@ -429,14 +480,48 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ));
     }
 
-    // Status bar
-    let status = Paragraph::new(app.status.as_str())
-        .block(
-            Block::default()
-                .title("Status")
-                .borders(Borders::ALL)
-        )
-        .style(Style::default().fg(Color::Green));
+    // Status area (optionally split to show debug info)
+    if app.debug_selected {
+        let status_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // debug line
+                Constraint::Length(2), // normal status
+            ].as_ref())
+            .split(main_chunks[1]);
 
-    f.render_widget(status, main_chunks[1]);
+        // Debug line: show selected chat timestamps (always one-line)
+        let debug_text = if let Some(chat) = app.get_selected_chat() {
+            let last_updated = chat.last_updated.as_deref().unwrap_or("<none>");
+            let last_read = chat.viewpoint.as_ref()
+                .and_then(|v| v.last_message_read_date_time.as_deref())
+                .unwrap_or("<none>");
+            format!("{} | LastUpdated: {} | LastRead: {}", chat.cached_display_name.as_deref().unwrap_or("Unknown"), last_updated, last_read)
+        } else {
+            "<no chat selected>".to_string()
+        };
+
+        let debug_para = Paragraph::new(debug_text)
+            .block(Block::default().borders(Borders::ALL).title("Debug"))
+            .style(Style::default().fg(Color::Yellow));
+
+        f.render_widget(debug_para, status_chunks[0]);
+
+        // Regular status below
+        let status_para = Paragraph::new(app.status.as_str())
+            .block(Block::default().title("Status").borders(Borders::ALL))
+            .style(Style::default().fg(Color::Green));
+
+        f.render_widget(status_para, status_chunks[1]);
+    } else {
+        let status = Paragraph::new(app.status.as_str())
+            .block(
+                Block::default()
+                    .title("Status")
+                    .borders(Borders::ALL)
+            )
+            .style(Style::default().fg(Color::Green));
+
+        f.render_widget(status, main_chunks[1]);
+    }
 }

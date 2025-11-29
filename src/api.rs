@@ -1,9 +1,28 @@
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 const GRAPH_API_BASE: &str = "https://graph.microsoft.com/v1.0";
+
+/// Extract tenant ID from a JWT access token by decoding the payload
+fn extract_tenant_id_from_token(access_token: &str) -> Option<String> {
+    // JWT format: header.payload.signature
+    let parts: Vec<&str> = access_token.split('.').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+
+    // Decode the payload (second part) from base64url
+    let payload = parts[1];
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let payload_str = String::from_utf8(decoded).ok()?;
+    
+    // Parse JSON and extract tid claim
+    let payload_json: serde_json::Value = serde_json::from_str(&payload_str).ok()?;
+    payload_json.get("tid")?.as_str().map(|s| s.to_string())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMember {
@@ -14,6 +33,12 @@ pub struct ChatMember {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ChatViewpoint {
+    #[serde(rename = "lastMessageReadDateTime")]
+    pub last_message_read_date_time: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Chat {
     pub id: String,
     pub topic: Option<String>,
@@ -21,6 +46,7 @@ pub struct Chat {
     pub chat_type: String,
     #[serde(rename = "lastUpdatedDateTime")]
     pub last_updated: Option<String>,
+    pub viewpoint: Option<ChatViewpoint>,
     #[serde(skip)]
     pub members: Vec<ChatMember>,
     #[serde(skip)]
@@ -221,9 +247,88 @@ pub async fn send_message(access_token: &str, chat_id: &str, content: &str) -> R
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+struct MarkChatReadRequest {
+    user: MarkChatReadUser,
+}
+
+#[derive(Debug, Serialize)]
+struct MarkChatReadUser {
+    id: String,
+    #[serde(rename = "tenantId")]
+    tenant_id: String,
+}
+
+/// Try to mark a chat as read with a small retry/backoff for transient 412 PreconditionFailed
+/// errors which can occur when the conversation state is in conflict.
+pub async fn mark_chat_read_for_user_with_retry(access_token: &str, chat_id: &str, user_id: &str, max_retries: u32) -> Result<()> {
+    use tokio::time::{sleep, Duration};
+
+    // Extract tenant ID once
+    let tenant_id = extract_tenant_id_from_token(access_token)
+        .context("Failed to extract tenant ID from access token")?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/chats/{}/markChatReadForUser", GRAPH_API_BASE, chat_id);
+
+    let request_body = MarkChatReadRequest {
+        user: MarkChatReadUser {
+            id: user_id.to_string(),
+            tenant_id,
+        },
+    };
+
+    for attempt in 0..=max_retries {
+        let resp = client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                if r.status().is_success() {
+                    return Ok(());
+                }
+
+                // If it's a 412 PreconditionFailed, treat as transient and retry with backoff
+                if r.status().as_u16() == 412 {
+                    let status = r.status();
+                    if attempt == max_retries {
+                        let text = r.text().await.unwrap_or_else(|_| "<failed to read body>".to_string());
+                        anyhow::bail!("Failed to mark chat as read after {} retries: {} - {}", max_retries, status, text);
+                    }
+                    // exponential backoff (1s, 2s, 4s, ...)
+                    let backoff_secs = 1u64 << attempt;
+                    sleep(Duration::from_secs(backoff_secs)).await;
+                    continue;
+                }
+
+                // Non-retryable error
+                let status = r.status();
+                let text = r.text().await.unwrap_or_else(|_| "<failed to read body>".to_string());
+                anyhow::bail!("Failed to mark chat as read: {} - {}", status, text);
+            }
+            Err(e) => {
+                // Network or client error - retry a few times
+                if attempt == max_retries {
+                    anyhow::bail!("Failed to mark chat as read (network error) after {} retries: {}", max_retries, e);
+                }
+                let backoff_secs = 1u64 << attempt;
+                sleep(Duration::from_secs(backoff_secs)).await;
+                continue;
+            }
+        }
+    }
+
+    anyhow::bail!("Failed to mark chat as read: exceeded retries");
+}
+
 pub async fn get_chats(access_token: &str) -> Result<(Vec<Chat>, Option<String>)> {
     let client = reqwest::Client::new();
-    let url = format!("{}/me/chats", GRAPH_API_BASE);
+    let url = format!("{}/me/chats?$select=id,topic,chatType,lastUpdatedDateTime,viewpoint", GRAPH_API_BASE);
 
     let response = client
         .get(&url)
@@ -238,6 +343,8 @@ pub async fn get_chats(access_token: &str) -> Result<(Vec<Chat>, Option<String>)
     }
 
     let chats_response = response.json::<ChatsResponse>().await?;
+    
+    // Debug output removed to avoid flooding the TUI terminal.
     
     // Filter out meeting chats - only show oneOnOne and group chats
     let mut filtered_chats: Vec<Chat> = chats_response
@@ -295,44 +402,43 @@ pub async fn get_chats(access_token: &str) -> Result<(Vec<Chat>, Option<String>)
     // Compute display names for all chats
     for chat in &mut filtered_chats {
         chat.cached_display_name = if chat.chat_type == "oneOnOne" {
-            // For oneOnOne, use the first member's name
+            // For oneOnOne, use the first member's name, fallback to topic, then id
             chat.members.first()
                 .and_then(|m| m.display_name.clone())
+                .or_else(|| chat.topic.clone())
+                .or_else(|| Some(chat.id.clone()))
         } else if chat.chat_type == "group" {
-            // For group, prefer topic, otherwise show member names
+            // For group, prefer topic, otherwise show member names, fallback to id
             if let Some(topic) = &chat.topic {
                 if !topic.is_empty() {
                     Some(topic.clone())
                 } else {
-                    // Show up to 3 member names (abbreviated)
                     let names: Vec<String> = chat.members
                         .iter()
                         .filter_map(|m| m.display_name.as_ref().map(|n| abbreviate_name(n)))
                         .take(3)
                         .collect();
-                    
                     if !names.is_empty() {
                         Some(names.join(", "))
                     } else {
-                        Some("Unnamed Group".to_string())
+                        Some(chat.id.clone())
                     }
                 }
             } else {
-                // No topic - show member names (abbreviated)
                 let names: Vec<String> = chat.members
                     .iter()
                     .filter_map(|m| m.display_name.as_ref().map(|n| abbreviate_name(n)))
                     .take(3)
                     .collect();
-                
                 if !names.is_empty() {
                     Some(names.join(", "))
                 } else {
-                    Some("Unnamed Group".to_string())
+                    Some(chat.id.clone())
                 }
             }
         } else {
-            Some("Unknown Chat".to_string())
+            // Fallback: show chat id
+            Some(chat.id.clone())
         };
     }
     
