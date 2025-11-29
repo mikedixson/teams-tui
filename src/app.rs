@@ -89,23 +89,4 @@ impl App {
             }
         }
     }
-
-    pub fn toggle_focus(&mut self) {
-        self.focused_pane = match self.focused_pane {
-            FocusedPane::ChatList => FocusedPane::Messages,
-            FocusedPane::Messages => FocusedPane::ChatList,
-        };
-    }
-
-    pub fn scroll_messages_up(&mut self) {
-        self.snap_to_bottom = false;
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
-    }
-
-    pub fn scroll_messages_down(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_add(1);
-        if self.scroll_offset >= self.max_scroll {
-            self.snap_to_bottom = true;
-        }
-    }
 }
