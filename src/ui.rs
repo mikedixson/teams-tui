@@ -1,3 +1,4 @@
+use crate::app::App;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -5,7 +6,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use crate::app::App;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
@@ -13,8 +13,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .margin(1)
         .constraints(
             [
-                Constraint::Min(3),     // Main content
-                Constraint::Length(3),  // Status
+                Constraint::Min(3),    // Main content
+                Constraint::Length(3), // Status
             ]
             .as_ref(),
         )
@@ -25,8 +25,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .direction(Direction::Horizontal)
         .constraints(
             [
-                Constraint::Percentage(30),  // Chat list
-                Constraint::Percentage(70),  // Messages
+                Constraint::Percentage(30), // Chat list
+                Constraint::Percentage(70), // Messages
             ]
             .as_ref(),
         )
@@ -38,8 +38,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             .direction(Direction::Vertical)
             .constraints(
                 [
-                    Constraint::Min(3),      // Messages
-                    Constraint::Length(3),   // Input field
+                    Constraint::Min(3),    // Messages
+                    Constraint::Length(3), // Input field
                 ]
                 .as_ref(),
             )
@@ -48,15 +48,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         std::rc::Rc::from(vec![content_chunks[1]].into_boxed_slice())
     };
 
+    // Store pane areas for mouse click detection
+    app.chat_list_area = content_chunks[0];
+    app.messages_area = messages_chunks[0];
+
     // Chat list
     let items: Vec<ListItem> = app
         .chats
         .iter()
         .enumerate()
         .map(|(i, chat)| {
-            let display_name = chat.cached_display_name.as_deref()
-                .unwrap_or("Unknown");
-            
+            let display_name = chat.cached_display_name.as_deref().unwrap_or("Unknown");
+
             let style = if i == app.selected_index {
                 Style::default()
                     .fg(Color::Yellow)
@@ -66,10 +69,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             };
 
             let content = Line::from(vec![
-                Span::styled(format!("[{}] ", chat.chat_type), Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    format!("[{}] ", chat.chat_type),
+                    Style::default().fg(Color::Cyan),
+                ),
                 Span::styled(display_name, style),
             ]);
-            
+
             ListItem::new(content)
         })
         .collect();
@@ -79,12 +85,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Block::default()
                 .title("Teams Chats (j↑/k↓ to navigate, q to quit)")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White))
+                .border_style(Style::default().fg(Color::White)),
         )
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         );
 
     f.render_widget(list, content_chunks[0]);
@@ -97,61 +103,69 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     } else {
         let width = messages_chunks[0].width.saturating_sub(2) as usize; // Account for borders
         let max_line_width = (width as f32 * 0.9) as usize; // Max 90% width for messages
-        
+
         let mut lines = Vec::new();
         let mut last_sender: Option<String> = None;
         let mut last_message_time: Option<chrono::DateTime<chrono::FixedOffset>> = None;
-        
+
         // Take 100 newest messages
-        for msg in app.messages.iter().take(100).rev() { 
-            let sender_name = msg.from.as_ref()
+        for msg in app.messages.iter().take(100).rev() {
+            let sender_name = msg
+                .from
+                .as_ref()
                 .and_then(|f| f.user.as_ref())
                 .and_then(|u| u.display_name.as_ref())
                 .map(|s| s.as_str())
                 .unwrap_or("Unknown");
-            
+
             let current_time = chrono::DateTime::parse_from_rfc3339(&msg.created_date_time).ok();
-            
-            let is_me = app.current_user_name.as_ref().map_or(false, |me| sender_name == me);
+
+            let is_me = app
+                .current_user_name
+                .as_ref()
+                .map_or(false, |me| sender_name == me);
             let same_sender = last_sender.as_deref() == Some(sender_name);
-            
-            let significant_time_gap = if let (Some(curr), Some(last)) = (current_time, last_message_time) {
-                let curr_hour = curr.format("%Y-%m-%d %H").to_string();
-                let last_hour = last.format("%Y-%m-%d %H").to_string();
-                curr_hour != last_hour
-            } else {
-                false
-            };
-            
+
+            let significant_time_gap =
+                if let (Some(curr), Some(last)) = (current_time, last_message_time) {
+                    let curr_hour = curr.format("%Y-%m-%d %H").to_string();
+                    let last_hour = last.format("%Y-%m-%d %H").to_string();
+                    curr_hour != last_hour
+                } else {
+                    false
+                };
+
             let show_header = !same_sender || significant_time_gap;
-            
+
             last_sender = Some(sender_name.to_string());
             last_message_time = current_time;
-            
+
             // Format date: 2025-11-21T19:11:33 -> Nov-21 19:11
             let date_str = if let Some(dt) = current_time {
                 dt.format("%b %d %H:%M").to_string()
             } else {
                 msg.created_date_time.clone()
             };
-            
-            let content = msg.body.as_ref()
+
+            let content = msg
+                .body
+                .as_ref()
                 .and_then(|b| b.content.as_ref())
                 .map(|c| c.as_str())
                 .unwrap_or("");
-            
+
             // Strip HTML tags and extract text content
             let mut clean_content = content.to_string();
-            
+
             // Remove attachment tags (quoted messages) - they're just metadata
             // Handle both self-closing <attachment ... /> and <attachment ...></attachment>
             let mut attachment_removed = String::new();
             let mut remaining = clean_content.as_str();
-            
+
             while let Some(attach_start) = remaining.find("<attachment") {
                 // Add text before the attachment tag
                 attachment_removed.push_str(&remaining[..attach_start]);
-                
+
                 // Find the end of the opening tag
                 if let Some(tag_end) = remaining[attach_start..].find('>') {
                     // Check if it's self-closing (ends with />)
@@ -173,24 +187,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     remaining = &remaining[attach_start + 11..];
                 }
             }
-            
+
             // Add remaining text
             attachment_removed.push_str(remaining);
             clean_content = attachment_removed;
-            
+
             // Extract emoji alt text: <emoji ... alt="😅" ...> -> 😅
             // Process emoji tags by finding them and replacing with alt text
             let mut emoji_processed = String::new();
             remaining = clean_content.as_str();
-            
+
             while let Some(emoji_start) = remaining.find("<emoji") {
                 // Add text before the emoji tag
                 emoji_processed.push_str(&remaining[..emoji_start]);
-                
+
                 // Find the end of the opening tag
                 if let Some(tag_end) = remaining[emoji_start..].find('>') {
                     let tag_str = &remaining[emoji_start..emoji_start + tag_end + 1];
-                    
+
                     // Extract alt attribute value
                     if let Some(alt_start) = tag_str.find("alt=\"") {
                         let alt_value_start = alt_start + 5;
@@ -199,10 +213,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                             emoji_processed.push_str(emoji);
                         }
                     }
-                    
+
                     // Skip past the opening tag
                     remaining = &remaining[emoji_start + tag_end + 1..];
-                    
+
                     // Skip past closing </emoji> tag if present
                     if remaining.starts_with("</emoji") {
                         if let Some(close_end) = remaining.find('>') {
@@ -215,11 +229,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     remaining = &remaining[emoji_start + 6..];
                 }
             }
-            
+
             // Add remaining text
             emoji_processed.push_str(remaining);
             clean_content = emoji_processed;
-            
+
             // Handle HTML entities
             clean_content = clean_content
                 .replace("&nbsp;", " ")
@@ -231,7 +245,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .replace("&apos;", "'")
                 .replace("&#160;", " ")
                 .replace("&nbsp", " ");
-            
+
             // Convert block-level tags to newlines
             clean_content = clean_content
                 .replace("</p>", "\n")
@@ -244,11 +258,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .replace("<br/>", "\n")
                 .replace("<br />", "\n")
                 .replace("</br>", "\n");
-            
+
             // Remove remaining HTML tags
             let mut no_html = String::new();
             let mut inside_tag = false;
-            
+
             for c in clean_content.chars() {
                 if c == '<' {
                     inside_tag = true;
@@ -258,11 +272,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     no_html.push(c);
                 }
             }
-            
+
             // Clean up whitespace: limit consecutive newlines to 2
             let mut final_content = String::new();
             let mut consecutive_newlines = 0;
-            
+
             for c in no_html.chars() {
                 if c == '\n' {
                     consecutive_newlines += 1;
@@ -274,20 +288,20 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     final_content.push(c);
                 }
             }
-            
+
             // Trim leading/trailing whitespace
             let final_content = final_content.trim();
 
             // Wrap text manually, preserving newlines
             let mut wrapped_lines = Vec::new();
-            
+
             if final_content.is_empty() {
                 // Empty content - still show one empty line so message appears
                 wrapped_lines.push(String::new());
             } else {
                 for line in final_content.lines() {
                     let mut current_line = String::new();
-                    
+
                     for word in line.split_whitespace() {
                         if current_line.len() + word.len() + 1 > max_line_width {
                             wrapped_lines.push(current_line);
@@ -303,7 +317,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                         wrapped_lines.push(current_line);
                     }
                 }
-                
+
                 // Ensure at least one line exists
                 if wrapped_lines.is_empty() {
                     wrapped_lines.push(String::new());
@@ -329,13 +343,21 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     let pad_str = " ".repeat(padding);
                     lines.push(Line::from(vec![
                         Span::raw(pad_str),
-                        Span::styled(header, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            header,
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                     ]));
                 } else {
                     // Left aligned header
-                    lines.push(Line::from(vec![
-                        Span::styled(header, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    ]));
+                    lines.push(Line::from(vec![Span::styled(
+                        header,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
                 }
             }
 
@@ -345,10 +367,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 for line in wrapped_lines {
                     let padding = width.saturating_sub(line.len());
                     let pad_str = " ".repeat(padding);
-                    lines.push(Line::from(vec![
-                        Span::raw(pad_str),
-                        Span::raw(line),
-                    ]));
+                    lines.push(Line::from(vec![Span::raw(pad_str), Span::raw(line)]));
                 }
             } else {
                 // Left aligned body
@@ -357,14 +376,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 }
             }
         }
-        
+
         lines
     };
 
     // Calculate scroll
     let total_lines = messages_content.len() as u16;
     let viewport_height = messages_chunks[0].height.saturating_sub(2); // Borders
-    
+
     // Calculate max scroll: if we have more lines than viewport, scroll to show bottom
     // The newest messages are at the bottom of the content (after .rev(), they're last in lines vector)
     if total_lines > viewport_height {
@@ -374,7 +393,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     } else {
         app.max_scroll = 0; // No scrolling needed if all fits
     }
-    
+
     // Always snap to bottom when loading new messages or if explicitly requested
     // This shows the newest messages at the bottom
     if app.snap_to_bottom {
@@ -385,7 +404,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             // Add extra margin (3-5 lines) to ensure the last message is definitely visible
             // This accounts for potential wrapping, spacing, or calculation errors
             let extra_margin = 5u16; // Scroll a bit more than necessary
-            app.scroll_offset = total_lines.saturating_sub(viewport_height).saturating_add(extra_margin);
+            app.scroll_offset = total_lines
+                .saturating_sub(viewport_height)
+                .saturating_add(extra_margin);
             // Cap at total_lines to prevent overflow (though we should never reach this)
             app.scroll_offset = std::cmp::min(app.scroll_offset, total_lines.saturating_sub(1));
         } else {
@@ -401,8 +422,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let messages_widget = Paragraph::new(messages_content)
         .block(
             Block::default()
-                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (i to compose, PgUp/PgDn to scroll)" })
-                .borders(Borders::ALL)
+                .title(if app.input_mode {
+                    "Messages (ESC to cancel)"
+                } else {
+                    "Messages (i to compose, PgUp/PgDn to scroll)"
+                })
+                .borders(Borders::ALL),
         )
         .wrap(ratatui::widgets::Wrap { trim: false })
         .scroll((app.scroll_offset, 0));
@@ -416,12 +441,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 Block::default()
                     .title("Type your message (Enter to send, ESC to cancel)")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
+                    .border_style(Style::default().fg(Color::Green)),
             )
             .style(Style::default().fg(Color::White));
-        
+
         f.render_widget(input_widget, messages_chunks[1]);
-        
+
         // Set cursor position
         f.set_cursor_position((
             messages_chunks[1].x + app.input_buffer.len() as u16 + 1,
@@ -431,11 +456,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // Status bar
     let status = Paragraph::new(app.status.as_str())
-        .block(
-            Block::default()
-                .title("Status")
-                .borders(Borders::ALL)
-        )
+        .block(Block::default().title("Status").borders(Borders::ALL))
         .style(Style::default().fg(Color::Green));
 
     f.render_widget(status, main_chunks[1]);
