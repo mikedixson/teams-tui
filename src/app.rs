@@ -1,11 +1,5 @@
 use crate::api::{Chat, Message};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum FocusedPane {
-    ChatList,
-    Messages,
-}
-
 pub struct App {
     pub chats: Vec<Chat>,
     pub status: String,
@@ -18,7 +12,6 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
-    pub focused_pane: FocusedPane,
 }
 
 impl App {
@@ -35,7 +28,6 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
-            focused_pane: FocusedPane::ChatList,
         }
     }
 
