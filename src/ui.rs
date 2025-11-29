@@ -486,13 +486,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     // Status bar - show image count if available
-    let status_text = if !app.viewable_images.is_empty() {
-        format!("{} | {} image(s) available - press 'v' to view", app.status, app.viewable_images.len())
+    let status_text: std::borrow::Cow<str> = if !app.viewable_images.is_empty() {
+        format!("{} | {} image(s) available - press 'v' to view", app.status, app.viewable_images.len()).into()
     } else {
-        app.status.clone()
+        (&app.status).into()
     };
     
-    let status = Paragraph::new(status_text)
+    let status = Paragraph::new(status_text.as_ref())
         .block(
             Block::default()
                 .title("Status")

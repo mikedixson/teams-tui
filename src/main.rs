@@ -104,6 +104,9 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
     
     // Create a channel for receiving loaded images
     let (tx_image, mut rx_image) = tokio::sync::mpsc::unbounded_channel::<(String, Vec<u8>)>();
+    
+    // Shared HTTP client for image downloads
+    let http_client = std::sync::Arc::new(reqwest::Client::new());
 
     // Spawn background task to refresh chats
     let tx_chats_clone = tx_chats.clone();
@@ -119,6 +122,17 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             }
         }
     });
+    
+    // Helper function to spawn image download task
+    let spawn_image_download = |url: String, tx_img: tokio::sync::mpsc::UnboundedSender<(String, Vec<u8>)>, client: std::sync::Arc<reqwest::Client>| {
+        tokio::spawn(async move {
+            if let Ok(token) = auth::get_valid_token_silent().await {
+                if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
+                    let _ = tx_img.send((url, bytes));
+                }
+            }
+        });
+    };
     
     // Load messages for the first chat if available
     if let Some(chat) = app.get_selected_chat() {
@@ -228,15 +242,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                             if let Some(img) = app.get_current_viewable_image().cloned() {
                                 let url = img.url.clone();
                                 app.start_viewing_image(img);
-                                let tx_img = tx_image.clone();
-                                tokio::spawn(async move {
-                                    if let Ok(token) = auth::get_valid_token_silent().await {
-                                        let client = reqwest::Client::new();
-                                        if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
-                                            let _ = tx_img.send((url, bytes));
-                                        }
-                                    }
-                                });
+                                spawn_image_download(url, tx_image.clone(), http_client.clone());
                             }
                         }
                         KeyCode::Right | KeyCode::Char('l') => {
@@ -245,15 +251,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                             if let Some(img) = app.get_current_viewable_image().cloned() {
                                 let url = img.url.clone();
                                 app.start_viewing_image(img);
-                                let tx_img = tx_image.clone();
-                                tokio::spawn(async move {
-                                    if let Ok(token) = auth::get_valid_token_silent().await {
-                                        let client = reqwest::Client::new();
-                                        if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
-                                            let _ = tx_img.send((url, bytes));
-                                        }
-                                    }
-                                });
+                                spawn_image_download(url, tx_image.clone(), http_client.clone());
                             }
                         }
                         _ => {}
@@ -272,17 +270,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                         if let Some(img) = app.get_current_viewable_image().cloned() {
                             let url = img.url.clone();
                             app.start_viewing_image(img);
-                            
-                            // Spawn task to download image
-                            let tx_img = tx_image.clone();
-                            tokio::spawn(async move {
-                                if let Ok(token) = auth::get_valid_token_silent().await {
-                                    let client = reqwest::Client::new();
-                                    if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
-                                        let _ = tx_img.send((url, bytes));
-                                    }
-                                }
-                            });
+                            spawn_image_download(url, tx_image.clone(), http_client.clone());
                         }
                     }
                     KeyCode::Char('i') if !app.input_mode => {
