@@ -97,6 +97,15 @@ Your profile is saved to `~/.config/teams-tui/profile.json` (limits API calls).
 
 If at some point you want/need to re-authenticate, just delete the `token.json` file (and eventually `profile.json`).
 
+### Automatic Read Receipts
+
+Messages are automatically marked as read when you view a chat. This happens:
+- When you select a chat from the list
+- When you switch between chats using `↑`/`↓` or `j`/`k`
+- Periodically while viewing a chat (every 3 seconds during background refresh)
+
+The app uses the Microsoft Graph API `markChatReadForUser` endpoint to sync your read status with Teams.
+
 ## TODO
 
 - [x] Set messages as `read` when viewed
