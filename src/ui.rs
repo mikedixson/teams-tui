@@ -455,7 +455,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (i to compose, PgUp/PgDn to scroll)" })
                 .borders(Borders::ALL)
         )
-        .wrap(ratatui::widgets::Wrap { trim: false })
         .scroll((app.scroll_offset, 0));
 
     f.render_widget(messages_widget, messages_chunks[0]);
