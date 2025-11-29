@@ -8,7 +8,7 @@ use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -201,6 +201,12 @@ async fn run_app(
 
             match event {
                 Event::Key(key) => {
+                    // Only process key press events, not release or repeat
+                    if let Some(kind) = key.kind.into() {
+                        if kind != KeyEventKind::Press {
+                            return Ok(());
+                        }
+                    }
                     match key.code {
                         KeyCode::Char('q') if !app.input_mode => return Ok(()),
                         KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
