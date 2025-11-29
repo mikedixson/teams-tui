@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, FocusedPane};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -6,7 +6,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use crate::app::{App, FocusedPane};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
@@ -92,7 +91,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             Block::default()
                 .title("Teams Chats (Tab to switch, ↑/↓ to navigate, q to quit)")
                 .borders(Borders::ALL)
-                .border_style(chat_list_border_style)
+                .border_style(chat_list_border_style),
         )
         .highlight_style(
             Style::default()
@@ -435,9 +434,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let messages_widget = Paragraph::new(messages_content)
         .block(
             Block::default()
-                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (Tab to switch, ↑/↓ to scroll, i to compose)" })
+                .title(if app.input_mode {
+                    "Messages (ESC to cancel)"
+                } else {
+                    "Messages (Tab to switch, ↑/↓ to scroll, i to compose)"
+                })
                 .borders(Borders::ALL)
-                .border_style(messages_border_style)
+                .border_style(messages_border_style),
         )
         .wrap(ratatui::widgets::Wrap { trim: false })
         .scroll((app.scroll_offset, 0));
