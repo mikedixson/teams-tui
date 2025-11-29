@@ -10,6 +10,7 @@ Use arrow keys (or h/j) to switch chats, press *i* to enter message-input mode, 
 - 🔐 Secure OAuth2 authentication (Device Code Flow)
 - 💬 View your Teams chats
 - ⌨️ Keyboard navigation (Vim-style or arrow keys)
+- 🖱️ Mouse support (click to select, scroll wheel to navigate)
 - 🎨 Modern, colorful terminal UI
 - 💾 Token persistence (no need to re-authenticate)
 - 🖼️ Image attachment indicators (with graphics protocol support)
@@ -82,6 +83,13 @@ teams-tui
 - `←` / `→` or `h` / `l` - Navigate between images (in image viewer)
 - `ESC` - Close image viewer / Cancel input
 - `q` - Quit
+
+## Mouse Controls
+
+- **Click** on a chat to select it
+- **Click** on the messages pane to focus it
+- **Scroll wheel** in chat list - navigate between chats
+- **Scroll wheel** in messages pane - scroll through messages
 
 ## Requirements
 

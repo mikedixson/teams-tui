@@ -1,29 +1,28 @@
-mod app;
-mod ui;
-mod auth;
 mod api;
+mod app;
+mod auth;
 pub mod config;
 pub mod image_display;
+mod ui;
 
-use std::io;
+use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use crate::app::App;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Authenticate first (before setting up terminal)
     println!("TeamsTUI");
     println!("================================\n");
-    
+
     let access_token = match auth::get_access_token().await {
         Ok(token) => {
             println!("✓ Authentication successful!\n");
@@ -76,7 +75,6 @@ async fn main() -> Result<()> {
     }
 
     // Run app
-    // Run app
     let res = run_app(&mut terminal, &mut app).await;
 
     // Restore terminal
@@ -95,16 +93,20 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+async fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    app: &mut App,
+) -> Result<()> {
     // Create a channel for receiving loaded messages
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, Vec<api::Message>)>();
-    
+
     // Create a channel for receiving chat updates
-    let (tx_chats, mut rx_chats) = tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
-    
+    let (tx_chats, mut rx_chats) =
+        tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
+
     // Create a channel for receiving loaded images
     let (tx_image, mut rx_image) = tokio::sync::mpsc::unbounded_channel::<(String, Vec<u8>)>();
-    
+
     // Shared HTTP client for image downloads
     let http_client = std::sync::Arc::new(reqwest::Client::new());
 
@@ -122,9 +124,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             }
         }
     });
-    
+
     // Helper function to spawn image download task
-    let spawn_image_download = |url: String, tx_img: tokio::sync::mpsc::UnboundedSender<(String, Vec<u8>)>, client: std::sync::Arc<reqwest::Client>| {
+    let spawn_image_download = |url: String,
+                                tx_img: tokio::sync::mpsc::UnboundedSender<(String, Vec<u8>)>,
+                                client: std::sync::Arc<reqwest::Client>| {
         tokio::spawn(async move {
             if let Ok(token) = auth::get_valid_token_silent().await {
                 if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
@@ -133,13 +137,13 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             }
         });
     };
-    
+
     // Load messages for the first chat if available
     if let Some(chat) = app.get_selected_chat() {
         let chat_id = chat.id.clone();
         let chat_index = app.selected_index;
         let tx_clone = tx.clone();
-        
+
         app.set_loading_messages(true);
         tokio::spawn(async move {
             if let Ok(token) = auth::get_valid_token_silent().await {
@@ -149,25 +153,24 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
             }
         });
     }
-    
+
     loop {
         // Check for chat updates
         while let Ok((chats, _)) = rx_chats.try_recv() {
             // Preserve selection
             let current_chat_id = app.get_selected_chat().map(|c| c.id.clone());
-            
+
             app.set_chats(chats);
-            
+
             if let Some(id) = current_chat_id {
                 if let Some(index) = app.chats.iter().position(|c| c.id == id) {
                     app.selected_index = index;
-                    
+
                     // Always refresh messages for the current chat to ensure we get new ones
-                    // The check will happen when we receive the messages
                     let tx_clone = tx.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
-                    
+
                     tokio::spawn(async move {
                         if let Ok(token) = auth::get_valid_token_silent().await {
                             if let Ok(messages) = api::get_messages(&token, &chat_id).await {
@@ -206,7 +209,7 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                 }
             }
         }
-        
+
         // Check for loaded images
         while let Ok((url, bytes)) = rx_image.try_recv() {
             // Only process if we're still viewing this image
@@ -224,82 +227,97 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                 }
             }
         }
-        
+
         terminal.draw(|f| ui::draw(f, app))?;
 
         // Use poll with timeout to allow checking for messages
         if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                // Handle image viewing mode
-                if app.is_viewing_image() {
+            let previous_index = app.selected_index;
+
+            match event::read()? {
+                Event::Key(key) => {
+                    // Handle image viewing mode first
+                    if app.is_viewing_image() {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                app.stop_viewing_image();
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                app.previous_image();
+                                // Load the new image
+                                if let Some(img) = app.get_current_viewable_image().cloned() {
+                                    let url = img.url.clone();
+                                    app.start_viewing_image(img);
+                                    spawn_image_download(
+                                        url,
+                                        tx_image.clone(),
+                                        http_client.clone(),
+                                    );
+                                }
+                            }
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                app.next_image();
+                                // Load the new image
+                                if let Some(img) = app.get_current_viewable_image().cloned() {
+                                    let url = img.url.clone();
+                                    app.start_viewing_image(img);
+                                    spawn_image_download(
+                                        url,
+                                        tx_image.clone(),
+                                        http_client.clone(),
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // Normal key handling
                     match key.code {
-                        KeyCode::Esc | KeyCode::Char('q') => {
-                            app.stop_viewing_image();
-                        }
-                        KeyCode::Left | KeyCode::Char('h') => {
-                            app.previous_image();
-                            // Load the new image
+                        KeyCode::Char('q') if !app.input_mode => return Ok(()),
+                        KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
+                        KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
+                        KeyCode::Char('v') if !app.input_mode => {
+                            // View image - open image viewer if images are available
                             if let Some(img) = app.get_current_viewable_image().cloned() {
                                 let url = img.url.clone();
                                 app.start_viewing_image(img);
                                 spawn_image_download(url, tx_image.clone(), http_client.clone());
                             }
                         }
-                        KeyCode::Right | KeyCode::Char('l') => {
-                            app.next_image();
-                            // Load the new image
-                            if let Some(img) = app.get_current_viewable_image().cloned() {
-                                let url = img.url.clone();
-                                app.start_viewing_image(img);
-                                spawn_image_download(url, tx_image.clone(), http_client.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-                    continue;
-                }
-                
-                let previous_index = app.selected_index;
-                
-                match key.code {
-                    KeyCode::Char('q') if !app.input_mode => return Ok(()),
-                    KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
-                    KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
-                    KeyCode::Char('v') if !app.input_mode => {
-                        // View image - open image viewer if images are available
-                        if let Some(img) = app.get_current_viewable_image().cloned() {
-                            let url = img.url.clone();
-                            app.start_viewing_image(img);
-                            spawn_image_download(url, tx_image.clone(), http_client.clone());
-                        }
-                    }
-                    KeyCode::Char('i') if !app.input_mode => {
-                        app.input_mode = true;
-                        app.input_buffer.clear();
-                    }
-                    KeyCode::Esc if app.input_mode => {
-                        app.input_mode = false;
-                        app.input_buffer.clear();
-                    }
-                    KeyCode::Enter if app.input_mode => {
-                        if !app.input_buffer.is_empty() {
-                            let message = app.input_buffer.clone();
+                        KeyCode::Char('i') if !app.input_mode => {
+                            app.input_mode = true;
                             app.input_buffer.clear();
+                        }
+                        KeyCode::Esc if app.input_mode => {
                             app.input_mode = false;
-                            
-                            // Send message logic
-                            if let Some(chat) = app.get_selected_chat() {
-                                let chat_id = chat.id.clone();
-                                let chat_index = app.selected_index;
-                                let tx = tx.clone();
-                                let tx_chats = tx_chats.clone(); // Clone for refresh
-                                
-                                tokio::spawn(async move {
-                                    if let Ok(token) = auth::get_valid_token_silent().await {
-                                        match api::send_message(&token, &chat_id, &message).await {
-                                            Ok(_) => {
+                            app.input_buffer.clear();
+                        }
+                        KeyCode::Enter if app.input_mode => {
+                            if !app.input_buffer.is_empty() {
+                                let message = app.input_buffer.clone();
+                                app.input_buffer.clear();
+                                app.input_mode = false;
+
+                                // Send message logic
+                                if let Some(chat) = app.get_selected_chat() {
+                                    let chat_id = chat.id.clone();
+                                    let chat_index = app.selected_index;
+                                    let tx = tx.clone();
+                                    let tx_chats = tx_chats.clone();
+
+                                    app.snap_to_bottom = true;
+                                    tokio::spawn(async move {
+                                        if let Ok(token) = auth::get_valid_token_silent().await {
+                                            if api::send_message(&token, &chat_id, &message)
+                                                .await
+                                                .is_ok()
+                                            {
                                                 // Reload messages
-                                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                                if let Ok(messages) =
+                                                    api::get_messages(&token, &chat_id).await
+                                                {
                                                     let _ = tx.send((chat_index, messages));
                                                 }
                                                 // Refresh chat list to update last message preview
@@ -307,52 +325,116 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                                                     let _ = tx_chats.send(chats);
                                                 }
                                             }
-                                            Err(e) => eprintln!("Failed to send message: {}", e),
                                         }
-                                    }
-                                });
+                                    });
+                                }
+                            }
+                        }
+                        KeyCode::Backspace if app.input_mode => {
+                            app.input_buffer.pop();
+                        }
+                        KeyCode::Char(c) if app.input_mode => {
+                            app.input_buffer.push(c);
+                        }
+                        KeyCode::PageUp => {
+                            app.snap_to_bottom = false;
+                            app.scroll_offset = app.scroll_offset.saturating_sub(10);
+                        }
+                        KeyCode::PageDown => {
+                            app.scroll_offset = app.scroll_offset.saturating_add(10);
+                            if app.scroll_offset >= app.max_scroll {
                                 app.snap_to_bottom = true;
                             }
                         }
+                        _ => {}
                     }
-                    KeyCode::Backspace if app.input_mode => {
-                        app.input_buffer.pop();
-                    }
-                    KeyCode::Char(c) if app.input_mode => {
-                        app.input_buffer.push(c);
-                    }
-                    KeyCode::PageUp => {
-                        app.snap_to_bottom = false;
-                        app.scroll_offset = app.scroll_offset.saturating_sub(10);
-                    }
-                    KeyCode::PageDown => {
-                        app.scroll_offset = app.scroll_offset.saturating_add(10);
-                        if app.scroll_offset >= app.max_scroll {
-                            app.snap_to_bottom = true;
-                        }
-                    }
-                    _ => {}
                 }
+                Event::Mouse(mouse_event) => {
+                    let x = mouse_event.column;
+                    let y = mouse_event.row;
 
-                // If selection changed, spawn a background task to load messages
-                if previous_index != app.selected_index {
-                    if let Some(chat) = app.get_selected_chat() {
-                        let chat_id = chat.id.clone();
-                        let chat_index = app.selected_index;
-                        let tx_clone = tx.clone();
-                        
-                        app.set_loading_messages(true);
-                        app.set_messages(Vec::new()); // Clear old messages immediately
-                        app.snap_to_bottom = true; // Snap to bottom for new chat
-                        
-                        tokio::spawn(async move {
-                            if let Ok(token) = auth::get_valid_token_silent().await {
-                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
-                                    let _ = tx_clone.send((chat_index, messages));
+                    // Determine which pane was clicked/scrolled
+                    let in_chat_list = x >= app.chat_list_area.x
+                        && x < app.chat_list_area.x + app.chat_list_area.width
+                        && y >= app.chat_list_area.y
+                        && y < app.chat_list_area.y + app.chat_list_area.height;
+
+                    let in_messages = x >= app.messages_area.x
+                        && x < app.messages_area.x + app.messages_area.width
+                        && y >= app.messages_area.y
+                        && y < app.messages_area.y + app.messages_area.height;
+
+                    match mouse_event.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            if in_chat_list {
+                                app.active_pane = ActivePane::ChatList;
+
+                                // Calculate which chat was clicked (accounting for border)
+                                let inner_y = y.saturating_sub(app.chat_list_area.y + 1);
+                                let clicked_index = inner_y as usize;
+
+                                if clicked_index < app.chats.len() {
+                                    app.selected_index = clicked_index;
+                                }
+                            } else if in_messages {
+                                app.active_pane = ActivePane::Messages;
+                            }
+                        }
+                        MouseEventKind::ScrollUp => {
+                            if in_chat_list {
+                                app.active_pane = ActivePane::ChatList;
+                                // Scroll chat list up
+                                if app.selected_index > 0 {
+                                    app.selected_index -= 1;
+                                }
+                            } else if in_messages {
+                                app.active_pane = ActivePane::Messages;
+                                // Scroll messages up
+                                app.snap_to_bottom = false;
+                                app.scroll_offset = app.scroll_offset.saturating_sub(3);
+                            }
+                        }
+                        MouseEventKind::ScrollDown => {
+                            if in_chat_list {
+                                app.active_pane = ActivePane::ChatList;
+                                // Scroll chat list down
+                                if !app.chats.is_empty() && app.selected_index < app.chats.len() - 1
+                                {
+                                    app.selected_index += 1;
+                                }
+                            } else if in_messages {
+                                app.active_pane = ActivePane::Messages;
+                                // Scroll messages down
+                                app.scroll_offset = app.scroll_offset.saturating_add(3);
+                                if app.scroll_offset >= app.max_scroll {
+                                    app.snap_to_bottom = true;
                                 }
                             }
-                        });
+                        }
+                        _ => {}
                     }
+                }
+                _ => {}
+            }
+
+            // If selection changed, spawn a background task to load messages
+            if previous_index != app.selected_index {
+                if let Some(chat) = app.get_selected_chat() {
+                    let chat_id = chat.id.clone();
+                    let chat_index = app.selected_index;
+                    let tx_clone = tx.clone();
+
+                    app.set_loading_messages(true);
+                    app.set_messages(Vec::new()); // Clear old messages immediately
+                    app.snap_to_bottom = true; // Snap to bottom for new chat
+
+                    tokio::spawn(async move {
+                        if let Ok(token) = auth::get_valid_token_silent().await {
+                            if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                let _ = tx_clone.send((chat_index, messages));
+                            }
+                        }
+                    });
                 }
             }
         }

@@ -1,7 +1,20 @@
 use crate::api::{Chat, Message};
 use crate::image_display::{ImageCache, ImagePicker};
+use ratatui::layout::Rect;
 use ratatui_image::protocol::StatefulProtocol;
 use std::collections::HashMap;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ActivePane {
+    ChatList,
+    Messages,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPane {
+    ChatList,
+    Messages,
+}
 
 /// Represents an image that can be viewed
 #[derive(Clone)]
@@ -22,6 +35,10 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
+    pub active_pane: ActivePane,
+    pub focused_pane: FocusedPane,
+    pub chat_list_area: Rect,
+    pub messages_area: Rect,
     /// Image picker for creating image protocols (optional, may fail on unsupported terminals)
     pub image_picker: Option<ImagePicker>,
     /// Cache for downloaded images
@@ -63,6 +80,10 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
+            active_pane: ActivePane::ChatList,
+            focused_pane: FocusedPane::ChatList,
+            chat_list_area: Rect::default(),
+            messages_area: Rect::default(),
             image_picker,
             image_cache: ImageCache::new(50), // Cache up to 50 images
             image_protocols: HashMap::new(),
