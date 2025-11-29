@@ -1,4 +1,12 @@
 use crate::api::{Chat, Message};
+use ratatui::layout::Rect;
+
+/// Represents which pane is currently focused for mouse/keyboard interaction
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ActivePane {
+    ChatList,
+    Messages,
+}
 
 pub struct App {
     pub chats: Vec<Chat>,
@@ -12,6 +20,9 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
+    pub active_pane: ActivePane,
+    pub chat_list_area: Rect,
+    pub messages_area: Rect,
 }
 
 impl App {
@@ -28,6 +39,9 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
+            active_pane: ActivePane::ChatList,
+            chat_list_area: Rect::default(),
+            messages_area: Rect::default(),
         }
     }
 
