@@ -1,4 +1,14 @@
 use crate::api::{Chat, Message};
+use ratatui::layout::Rect;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPane {
+    ChatList,
+    Messages,
+}
+
+// Alias for backwards compatibility
+pub type ActivePane = FocusedPane;
 
 pub struct App {
     pub chats: Vec<Chat>,
@@ -12,6 +22,10 @@ pub struct App {
     pub scroll_offset: u16,
     pub max_scroll: u16,
     pub snap_to_bottom: bool,
+    pub focused_pane: FocusedPane,
+    pub active_pane: FocusedPane,
+    pub chat_list_area: Rect,
+    pub messages_area: Rect,
 }
 
 impl App {
@@ -28,6 +42,10 @@ impl App {
             scroll_offset: 0,
             max_scroll: 0,
             snap_to_bottom: true,
+            focused_pane: FocusedPane::ChatList,
+            active_pane: FocusedPane::ChatList,
+            chat_list_area: Rect::default(),
+            messages_area: Rect::default(),
         }
     }
 

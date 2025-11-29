@@ -7,15 +7,14 @@ mod ui;
 use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use crate::app::App;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -197,10 +196,10 @@ async fn run_app(
 
         // Use poll with timeout to allow checking for messages
         if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                let previous_index = app.selected_index;
-                
-                match key.code {
+            let previous_index = app.selected_index;
+
+            match event::read()? {
+                Event::Key(key) => match key.code {
                     KeyCode::Char('q') if !app.input_mode => return Ok(()),
                     KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
                     KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
@@ -217,20 +216,22 @@ async fn run_app(
                             let message = app.input_buffer.clone();
                             app.input_buffer.clear();
                             app.input_mode = false;
-                            
+
                             // Send message logic
                             if let Some(chat) = app.get_selected_chat() {
                                 let chat_id = chat.id.clone();
                                 let chat_index = app.selected_index;
                                 let tx = tx.clone();
                                 let tx_chats = tx_chats.clone(); // Clone for refresh
-                                
+
                                 tokio::spawn(async move {
                                     if let Ok(token) = auth::get_valid_token_silent().await {
                                         match api::send_message(&token, &chat_id, &message).await {
                                             Ok(_) => {
                                                 // Reload messages
-                                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                                if let Ok(messages) =
+                                                    api::get_messages(&token, &chat_id).await
+                                                {
                                                     let _ = tx.send((chat_index, messages));
                                                 }
                                                 // Refresh chat list to update last message preview
@@ -238,31 +239,32 @@ async fn run_app(
                                                     let _ = tx_chats.send(chats);
                                                 }
                                             }
+                                            Err(_) => {}
                                         }
-                                    });
-                                    app.snap_to_bottom = true;
-                                }
-                            }
-                        }
-                        KeyCode::Backspace if app.input_mode => {
-                            app.input_buffer.pop();
-                        }
-                        KeyCode::Char(c) if app.input_mode => {
-                            app.input_buffer.push(c);
-                        }
-                        KeyCode::PageUp => {
-                            app.snap_to_bottom = false;
-                            app.scroll_offset = app.scroll_offset.saturating_sub(10);
-                        }
-                        KeyCode::PageDown => {
-                            app.scroll_offset = app.scroll_offset.saturating_add(10);
-                            if app.scroll_offset >= app.max_scroll {
+                                    }
+                                });
                                 app.snap_to_bottom = true;
                             }
                         }
-                        _ => {}
                     }
-                }
+                    KeyCode::Backspace if app.input_mode => {
+                        app.input_buffer.pop();
+                    }
+                    KeyCode::Char(c) if app.input_mode => {
+                        app.input_buffer.push(c);
+                    }
+                    KeyCode::PageUp => {
+                        app.snap_to_bottom = false;
+                        app.scroll_offset = app.scroll_offset.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        app.scroll_offset = app.scroll_offset.saturating_add(10);
+                        if app.scroll_offset >= app.max_scroll {
+                            app.snap_to_bottom = true;
+                        }
+                    }
+                    _ => {}
+                },
                 Event::Mouse(mouse_event) => {
                     let x = mouse_event.column;
                     let y = mouse_event.row;
