@@ -15,7 +15,7 @@ use ratatui::{
     backend::CrosstermBackend,
     Terminal,
 };
-use crate::app::App;
+use crate::app::{App, FocusedPane};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -198,8 +198,19 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mu
                 
                 match key.code {
                     KeyCode::Char('q') if !app.input_mode => return Ok(()),
-                    KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
-                    KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
+                    KeyCode::Tab if !app.input_mode => app.toggle_focus(),
+                    KeyCode::Down | KeyCode::Char('j') if !app.input_mode => {
+                        match app.focused_pane {
+                            FocusedPane::ChatList => app.next_chat(),
+                            FocusedPane::Messages => app.scroll_messages_down(),
+                        }
+                    }
+                    KeyCode::Up | KeyCode::Char('k') if !app.input_mode => {
+                        match app.focused_pane {
+                            FocusedPane::ChatList => app.previous_chat(),
+                            FocusedPane::Messages => app.scroll_messages_up(),
+                        }
+                    }
                     KeyCode::Char('i') if !app.input_mode => {
                         app.input_mode = true;
                         app.input_buffer.clear();

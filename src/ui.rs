@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use crate::app::App;
+use crate::app::{App, FocusedPane};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
@@ -74,12 +74,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         })
         .collect();
 
+    let chat_list_border_style = if app.focused_pane == FocusedPane::ChatList {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
     let list = List::new(items)
         .block(
             Block::default()
-                .title("Teams Chats (j↑/k↓ to navigate, q to quit)")
+                .title("Teams Chats (Tab to switch, j/k to navigate, q to quit)")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White))
+                .border_style(chat_list_border_style)
         )
         .highlight_style(
             Style::default()
@@ -398,11 +404,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         app.scroll_offset = std::cmp::min(app.scroll_offset, app.max_scroll);
     }
 
+    let messages_border_style = if app.focused_pane == FocusedPane::Messages {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::White)
+    };
+
     let messages_widget = Paragraph::new(messages_content)
         .block(
             Block::default()
-                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (i to compose, PgUp/PgDn to scroll)" })
+                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (Tab to switch, j/k to scroll, i to compose)" })
                 .borders(Borders::ALL)
+                .border_style(messages_border_style)
         )
         .wrap(ratatui::widgets::Wrap { trim: false })
         .scroll((app.scroll_offset, 0));
