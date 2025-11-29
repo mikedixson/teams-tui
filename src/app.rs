@@ -23,7 +23,6 @@ pub struct App {
     pub active_pane: ActivePane,
     pub chat_list_area: Rect,
     pub messages_area: Rect,
-    pub chat_list_scroll: u16,
 }
 
 impl App {
@@ -43,7 +42,6 @@ impl App {
             active_pane: ActivePane::ChatList,
             chat_list_area: Rect::default(),
             messages_area: Rect::default(),
-            chat_list_scroll: 0,
         }
     }
 

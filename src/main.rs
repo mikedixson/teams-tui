@@ -295,8 +295,7 @@ async fn run_app(
 
                                 // Calculate which chat was clicked (accounting for border)
                                 let inner_y = y.saturating_sub(app.chat_list_area.y + 1); // +1 for top border
-                                let clicked_index =
-                                    (inner_y as usize) + (app.chat_list_scroll as usize);
+                                let clicked_index = inner_y as usize;
 
                                 if clicked_index < app.chats.len() {
                                     app.selected_index = clicked_index;
