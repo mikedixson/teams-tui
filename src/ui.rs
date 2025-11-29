@@ -83,7 +83,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let list = List::new(items)
         .block(
             Block::default()
-                .title("Teams Chats (Tab to switch, j/k to navigate, q to quit)")
+                .title("Teams Chats (Tab to switch, ↑/↓ to navigate, q to quit)")
                 .borders(Borders::ALL)
                 .border_style(chat_list_border_style)
         )
@@ -413,7 +413,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let messages_widget = Paragraph::new(messages_content)
         .block(
             Block::default()
-                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (Tab to switch, j/k to scroll, i to compose)" })
+                .title(if app.input_mode { "Messages (ESC to cancel)" } else { "Messages (Tab to switch, ↑/↓ to scroll, i to compose)" })
                 .borders(Borders::ALL)
                 .border_style(messages_border_style)
         )
