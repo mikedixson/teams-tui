@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{ActivePane, App};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -6,7 +6,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use crate::app::{App, FocusedPane};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
@@ -81,7 +80,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         })
         .collect();
 
-    let chat_list_border_style = if app.focused_pane == FocusedPane::ChatList {
+    let chat_list_border_style = if app.active_pane == ActivePane::ChatList {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
@@ -426,7 +425,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         app.scroll_offset = std::cmp::min(app.scroll_offset, app.max_scroll);
     }
 
-    let messages_border_style = if app.focused_pane == FocusedPane::Messages {
+    let messages_border_style = if app.active_pane == ActivePane::Messages {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::White)
