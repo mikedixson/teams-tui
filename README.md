@@ -61,7 +61,7 @@ cp ./target/release/teams-tui /usr/local/bin/teams-tui
 # and run from anywhere
 teams-tui
 ```
-**Imoportant:** If you use `.env` file, make sure to run the app from the same directory where `.env` is located (still preferred way is to use `config.json` for settings).
+**Important:** If you use `.env` file, make sure to run the app from the same directory where `.env` is located (still preferred way is to use `config.json` for settings).
 
 ## First Time Setup
 
