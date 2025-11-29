@@ -4,18 +4,15 @@ mod auth;
 pub mod config;
 mod ui;
 
-use crate::app::{ActivePane, App};
+use crate::app::App;
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
-use crate::app::App;
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -199,7 +196,7 @@ async fn run_app(
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 let previous_index = app.selected_index;
-                
+
                 match key.code {
                     KeyCode::Char('q') if !app.input_mode => return Ok(()),
                     KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
@@ -217,20 +214,22 @@ async fn run_app(
                             let message = app.input_buffer.clone();
                             app.input_buffer.clear();
                             app.input_mode = false;
-                            
+
                             // Send message logic
                             if let Some(chat) = app.get_selected_chat() {
                                 let chat_id = chat.id.clone();
                                 let chat_index = app.selected_index;
                                 let tx = tx.clone();
                                 let tx_chats = tx_chats.clone(); // Clone for refresh
-                                
+
                                 tokio::spawn(async move {
                                     if let Ok(token) = auth::get_valid_token_silent().await {
                                         match api::send_message(&token, &chat_id, &message).await {
                                             Ok(_) => {
                                                 // Reload messages
-                                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                                if let Ok(messages) =
+                                                    api::get_messages(&token, &chat_id).await
+                                                {
                                                     let _ = tx.send((chat_index, messages));
                                                 }
                                                 // Refresh chat list to update last message preview
@@ -238,117 +237,52 @@ async fn run_app(
                                                     let _ = tx_chats.send(chats);
                                                 }
                                             }
+                                            Err(_) => {}
                                         }
-                                    });
-                                    app.snap_to_bottom = true;
-                                }
-                            }
-                        }
-                        KeyCode::Backspace if app.input_mode => {
-                            app.input_buffer.pop();
-                        }
-                        KeyCode::Char(c) if app.input_mode => {
-                            app.input_buffer.push(c);
-                        }
-                        KeyCode::PageUp => {
-                            app.snap_to_bottom = false;
-                            app.scroll_offset = app.scroll_offset.saturating_sub(10);
-                        }
-                        KeyCode::PageDown => {
-                            app.scroll_offset = app.scroll_offset.saturating_add(10);
-                            if app.scroll_offset >= app.max_scroll {
+                                    }
+                                });
                                 app.snap_to_bottom = true;
                             }
                         }
-                        _ => {}
                     }
-                }
-                Event::Mouse(mouse_event) => {
-                    let x = mouse_event.column;
-                    let y = mouse_event.row;
-
-                    // Determine which pane was clicked/scrolled
-                    let in_chat_list = x >= app.chat_list_area.x
-                        && x < app.chat_list_area.x + app.chat_list_area.width
-                        && y >= app.chat_list_area.y
-                        && y < app.chat_list_area.y + app.chat_list_area.height;
-
-                    let in_messages = x >= app.messages_area.x
-                        && x < app.messages_area.x + app.messages_area.width
-                        && y >= app.messages_area.y
-                        && y < app.messages_area.y + app.messages_area.height;
-
-                    match mouse_event.kind {
-                        MouseEventKind::Down(MouseButton::Left) => {
-                            if in_chat_list {
-                                app.active_pane = ActivePane::ChatList;
-
-                                // Calculate which chat was clicked (accounting for border)
-                                let inner_y = y.saturating_sub(app.chat_list_area.y + 1); // +1 for top border
-                                let clicked_index = inner_y as usize;
-
-                                if clicked_index < app.chats.len() {
-                                    app.selected_index = clicked_index;
-                                }
-                            } else if in_messages {
-                                app.active_pane = ActivePane::Messages;
-                            }
-                        }
-                        MouseEventKind::ScrollUp => {
-                            if in_chat_list {
-                                app.active_pane = ActivePane::ChatList;
-                                // Scroll chat list up
-                                if app.selected_index > 0 {
-                                    app.selected_index -= 1;
-                                }
-                            } else if in_messages {
-                                app.active_pane = ActivePane::Messages;
-                                // Scroll messages up
-                                app.snap_to_bottom = false;
-                                app.scroll_offset = app.scroll_offset.saturating_sub(3);
-                            }
-                        }
-                        MouseEventKind::ScrollDown => {
-                            if in_chat_list {
-                                app.active_pane = ActivePane::ChatList;
-                                // Scroll chat list down
-                                if !app.chats.is_empty() && app.selected_index < app.chats.len() - 1
-                                {
-                                    app.selected_index += 1;
-                                }
-                            } else if in_messages {
-                                app.active_pane = ActivePane::Messages;
-                                // Scroll messages down
-                                app.scroll_offset = app.scroll_offset.saturating_add(3);
-                                if app.scroll_offset >= app.max_scroll {
-                                    app.snap_to_bottom = true;
-                                }
-                            }
-                        }
-                        _ => {}
+                    KeyCode::Backspace if app.input_mode => {
+                        app.input_buffer.pop();
                     }
-                }
-                _ => {}
-            }
-
-            // If selection changed, spawn a background task to load messages
-            if previous_index != app.selected_index {
-                if let Some(chat) = app.get_selected_chat() {
-                    let chat_id = chat.id.clone();
-                    let chat_index = app.selected_index;
-                    let tx_clone = tx.clone();
-
-                    app.set_loading_messages(true);
-                    app.set_messages(Vec::new()); // Clear old messages immediately
-                    app.snap_to_bottom = true; // Snap to bottom for new chat
-
-                    tokio::spawn(async move {
-                        if let Ok(token) = auth::get_valid_token_silent().await {
-                            if let Ok(messages) = api::get_messages(&token, &chat_id).await {
-                                let _ = tx_clone.send((chat_index, messages));
-                            }
+                    KeyCode::Char(c) if app.input_mode => {
+                        app.input_buffer.push(c);
+                    }
+                    KeyCode::PageUp => {
+                        app.snap_to_bottom = false;
+                        app.scroll_offset = app.scroll_offset.saturating_sub(10);
+                    }
+                    KeyCode::PageDown => {
+                        app.scroll_offset = app.scroll_offset.saturating_add(10);
+                        if app.scroll_offset >= app.max_scroll {
+                            app.snap_to_bottom = true;
                         }
-                    });
+                    }
+                    _ => {}
+                }
+
+                // If selection changed, spawn a background task to load messages
+                if previous_index != app.selected_index {
+                    if let Some(chat) = app.get_selected_chat() {
+                        let chat_id = chat.id.clone();
+                        let chat_index = app.selected_index;
+                        let tx_clone = tx.clone();
+
+                        app.set_loading_messages(true);
+                        app.set_messages(Vec::new()); // Clear old messages immediately
+                        app.snap_to_bottom = true; // Snap to bottom for new chat
+
+                        tokio::spawn(async move {
+                            if let Ok(token) = auth::get_valid_token_silent().await {
+                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                    let _ = tx_clone.send((chat_index, messages));
+                                }
+                            }
+                        });
+                    }
                 }
             }
         }
