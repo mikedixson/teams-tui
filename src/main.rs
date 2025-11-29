@@ -399,6 +399,7 @@ async fn run_app(
                         MouseEventKind::Down(MouseButton::Left) => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
 
                                 // Calculate which chat was clicked (accounting for border)
                                 let inner_y = y.saturating_sub(app.chat_list_area.y + 1);
@@ -409,17 +410,20 @@ async fn run_app(
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                             }
                         }
                         MouseEventKind::ScrollUp => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
                                 // Scroll chat list up
                                 if app.selected_index > 0 {
                                     app.selected_index -= 1;
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                                 // Scroll messages up
                                 app.snap_to_bottom = false;
                                 app.scroll_offset = app.scroll_offset.saturating_sub(3);
@@ -428,6 +432,7 @@ async fn run_app(
                         MouseEventKind::ScrollDown => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
                                 // Scroll chat list down
                                 if !app.chats.is_empty() && app.selected_index < app.chats.len() - 1
                                 {
@@ -435,6 +440,7 @@ async fn run_app(
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                                 // Scroll messages down
                                 app.scroll_offset = app.scroll_offset.saturating_add(3);
                                 if app.scroll_offset >= app.max_scroll {
