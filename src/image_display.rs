@@ -7,9 +7,11 @@
 //! detection and rendering automatically.
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use image::DynamicImage;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::StatefulProtocol;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{stdout, Write};
 
@@ -115,18 +117,43 @@ pub fn load_image_from_bytes(bytes: &[u8]) -> Result<DynamicImage> {
     Ok(image)
 }
 
+/// Response from the Graph API shares endpoint
+#[derive(Debug, Deserialize)]
+struct SharesResponse {
+    #[serde(rename = "@microsoft.graph.downloadUrl")]
+    download_url: Option<String>,
+}
+
+/// Convert a SharePoint/OneDrive URL to a Graph API shares endpoint URL
+fn url_to_shares_endpoint(url: &str) -> String {
+    // Encode the URL in base64 for the shares endpoint
+    // See: https://learn.microsoft.com/en-us/graph/api/shares-get
+    let encoded = URL_SAFE_NO_PAD.encode(url);
+    format!(
+        "https://graph.microsoft.com/v1.0/shares/u!{}/driveItem",
+        encoded
+    )
+}
+
 /// Download an image from a URL using the provided access token
 /// 
 /// Teams uses different URL patterns for images:
 /// - Graph API URLs: Direct access with Bearer token
-/// - SharePoint/OneDrive URLs: May require redirect following
+/// - SharePoint/OneDrive URLs: Uses Graph API shares endpoint to get download URL
 /// - Hosted content: Inline images embedded in messages
 pub async fn download_image(
     client: &reqwest::Client,
     url: &str,
     access_token: &str,
 ) -> Result<Vec<u8>> {
-    // Try with Bearer token first
+    let url_lower = url.to_lowercase();
+    
+    // For SharePoint/OneDrive URLs, use the Graph API shares endpoint
+    if url_lower.contains("sharepoint.com") || url_lower.contains("onedrive") {
+        return download_sharepoint_image(client, url, access_token).await;
+    }
+    
+    // For other URLs (Graph API, etc.), try direct access with Bearer token
     let response = client
         .get(url)
         .header("Authorization", format!("Bearer {}", access_token))
@@ -144,33 +171,86 @@ pub async fn download_image(
         return Ok(bytes.to_vec());
     }
     
-    // If we get 401/403, the URL might be a SharePoint/OneDrive URL
-    // that requires different handling or the attachment is not accessible
-    // via the current token's permissions
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
-        // Try to provide more helpful error message
-        let url_lower = url.to_lowercase();
-        if url_lower.contains("sharepoint.com") || url_lower.contains("onedrive") {
-            anyhow::bail!(
-                "Cannot access SharePoint/OneDrive file ({}). \
-                Delete ~/.config/teams-tui/token.json and restart to re-authenticate with updated permissions.", 
-                status
-            );
-        } else if url_lower.contains("graph.microsoft.com") {
+        if url_lower.contains("graph.microsoft.com") {
             anyhow::bail!(
                 "Graph API access denied ({}). Token may have expired - try deleting ~/.config/teams-tui/token.json and restart.",
                 status
             );
         } else {
             anyhow::bail!(
-                "Access denied ({}) - URL may require additional permissions: {}",
-                status,
-                if url.len() > 80 { &url[..80] } else { url }
+                "Access denied ({}) - URL may require additional permissions",
+                status
             );
         }
     }
     
-    anyhow::bail!("Failed to download image: {} - {}", status, url)
+    anyhow::bail!("Failed to download image: {}", status)
+}
+
+/// Download an image from SharePoint/OneDrive using the Graph API shares endpoint
+async fn download_sharepoint_image(
+    client: &reqwest::Client,
+    sharepoint_url: &str,
+    access_token: &str,
+) -> Result<Vec<u8>> {
+    // Step 1: Use the shares endpoint to get the driveItem with download URL
+    let shares_url = url_to_shares_endpoint(sharepoint_url);
+    
+    let response = client
+        .get(&shares_url)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await
+        .context("Failed to query Graph API shares endpoint")?;
+
+    let status = response.status();
+    
+    if !status.is_success() {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            anyhow::bail!(
+                "Cannot access SharePoint file via Graph API ({}). \
+                Make sure Files.Read.All or Sites.Read.All permission is granted and re-authenticate.",
+                status
+            );
+        }
+        anyhow::bail!(
+            "Graph API shares endpoint returned error: {}",
+            status
+        );
+    }
+
+    // Parse the response to get the download URL
+    let shares_response: SharesResponse = response
+        .json()
+        .await
+        .context("Failed to parse shares response")?;
+
+    let download_url = shares_response.download_url.ok_or_else(|| {
+        anyhow::anyhow!("No download URL in shares response - file may not be accessible")
+    })?;
+
+    // Step 2: Download the actual file content using the temporary download URL
+    // Note: The download URL is pre-authenticated and doesn't need a Bearer token
+    let file_response = client
+        .get(&download_url)
+        .send()
+        .await
+        .context("Failed to download file from SharePoint")?;
+
+    if !file_response.status().is_success() {
+        anyhow::bail!(
+            "Failed to download file from SharePoint: {}",
+            file_response.status()
+        );
+    }
+
+    let bytes = file_response
+        .bytes()
+        .await
+        .context("Failed to read file bytes")?;
+
+    Ok(bytes.to_vec())
 }
 
 /// Print information about the detected image protocol

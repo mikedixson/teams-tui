@@ -17,3 +17,4 @@ chrono = "0.4.42"
 ratatui-image = { version = "4.2.0", features = ["crossterm"] }
 image = "0.25"
 unicode-width = "0.2"
+base64 = "0.22"
