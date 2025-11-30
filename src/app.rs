@@ -186,6 +186,7 @@ impl App {
 
     /// Start viewing an image
     pub fn start_viewing_image(&mut self, image: ViewableImage) {
+        self.status = format!("Loading image: {}...", image.name);
         self.viewing_image = Some(image);
         self.loading_image = true;
         self.current_image_protocol = None;

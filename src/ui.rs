@@ -596,7 +596,13 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
         let image_widget = StatefulImage::default();
         f.render_stateful_widget(image_widget, inner_area, protocol);
     } else {
-        let error = Paragraph::new("Failed to load image or no image selected")
+        // Show the status message if it contains error info, otherwise a generic message
+        let error_msg = if app.status.contains("failed") || app.status.contains("Failed") || app.status.contains("error") || app.status.contains("Error") {
+            app.status.clone()
+        } else {
+            "Failed to load image or no image selected".to_string()
+        };
+        let error = Paragraph::new(error_msg)
             .style(Style::default().fg(Color::Red));
         f.render_widget(error, inner_area);
     }

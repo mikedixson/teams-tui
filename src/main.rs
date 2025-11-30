@@ -221,14 +221,20 @@ async fn run_app(
                     match result {
                         Ok(bytes) => {
                             // Try to decode and create protocol
-                            if let Ok(dyn_img) = image::load_from_memory(&bytes) {
-                                if let Some(ref mut picker) = app.image_picker {
-                                    let protocol = picker.new_resize_protocol(dyn_img);
-                                    app.set_image_protocol(protocol);
+                            match image::load_from_memory(&bytes) {
+                                Ok(dyn_img) => {
+                                    if let Some(ref mut picker) = app.image_picker {
+                                        let protocol = picker.new_resize_protocol(dyn_img);
+                                        app.set_image_protocol(protocol);
+                                    } else {
+                                        app.loading_image = false;
+                                        app.status = "Image display not supported in this terminal".to_string();
+                                    }
                                 }
-                            } else {
-                                app.loading_image = false;
-                                app.status = "Failed to decode image".to_string();
+                                Err(e) => {
+                                    app.loading_image = false;
+                                    app.status = format!("Failed to decode image: {}", e);
+                                }
                             }
                         }
                         Err(error_msg) => {
