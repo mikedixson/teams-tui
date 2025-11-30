@@ -221,7 +221,10 @@ async fn get_chat_members(access_token: &str, chat_id: &str) -> Result<Vec<ChatM
 
 pub async fn get_messages(access_token: &str, chat_id: &str) -> Result<Vec<Message>> {
     let client = reqwest::Client::new();
-    let url = format!("{}/chats/{}/messages", GRAPH_API_BASE, chat_id);
+    let url = format!(
+        "{}/chats/{}/messages",
+        GRAPH_API_BASE, chat_id
+    );
 
     let response = client
         .get(&url)

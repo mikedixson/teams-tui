@@ -563,15 +563,15 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
     // Get image name for title
     let title = if let Some(ref img) = app.viewing_image {
         let nav_hint = if app.viewable_images.len() > 1 {
-            format!(" ({}/{}) - ←/→ to navigate, ESC to close", 
+            format!(" ({}/{}) - ←/→ to navigate, ESC to close, 'o' to open externally", 
                 app.selected_image_index + 1, 
                 app.viewable_images.len())
         } else {
-            " - ESC to close".to_string()
+            " - ESC to close, 'o' to open externally".to_string()
         };
         format!("Image: {}{}", img.name, nav_hint)
     } else {
-        "Image Viewer - ESC to close".to_string()
+        "Image Viewer - ESC to close, 'o' to open externally".to_string()
     };
     
     // Create the block for the popup
@@ -595,6 +595,21 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
         // Render the actual image using StatefulImage
         let image_widget = StatefulImage::default();
         f.render_stateful_widget(image_widget, inner_area, protocol);
+        // Show protocol info if not graphics
+        if let Some(picker) = app.image_picker.as_ref() {
+            if !picker.supports_graphics() {
+                let msg = Paragraph::new("⚠ Image display is limited: your terminal does not support graphics protocols. Showing Unicode fallback.")
+                    .style(Style::default().fg(Color::Yellow));
+                // Render message at bottom of popup
+                let msg_area = Rect {
+                    x: inner_area.x,
+                    y: inner_area.y + inner_area.height.saturating_sub(2),
+                    width: inner_area.width,
+                    height: 2,
+                };
+                f.render_widget(msg, msg_area);
+            }
+        }
     } else if let Some(ref error) = app.image_error {
         // Show the specific error message
         let error_widget = Paragraph::new(error.clone())

@@ -157,6 +157,7 @@ async fn run_app(
         });
     }
 
+    use std::process::Command;
     loop {
         // Check for chat updates
         while let Ok((chats, _)) = rx_chats.try_recv() {
@@ -255,7 +256,7 @@ async fn run_app(
                     if key.kind != KeyEventKind::Press {
                         continue;
                     }
-                    
+
                     // Handle image viewing mode first
                     if app.is_viewing_image() {
                         match key.code {
@@ -286,6 +287,57 @@ async fn run_app(
                                         tx_image.clone(),
                                         http_client.clone(),
                                     );
+                                }
+                            }
+                            KeyCode::Char('o') => {
+                                // View externally: download image and open with default viewer
+                                if let Some(img) = app.get_current_viewable_image() {
+                                    let url = img.url.clone();
+                                    if let Ok(token) = auth::get_valid_token_silent().await {
+                                        match image_display::download_image(&http_client, &url, &token).await {
+                                            Ok(bytes) => {
+                                                // Save to temp file
+                                                let ext = if url.ends_with(".png") {
+                                                    "png"
+                                                } else if url.ends_with(".jpg") || url.ends_with(".jpeg") {
+                                                    "jpg"
+                                                } else if url.ends_with(".gif") {
+                                                    "gif"
+                                                } else {
+                                                    "img"
+                                                };
+                                                let tmp_dir = std::env::temp_dir();
+                                                let file_path = tmp_dir.join(format!("teams-tui-view.{}", ext));
+                                                match std::fs::write(&file_path, &bytes) {
+                                                    Ok(_) => {
+                                                        // Open with default viewer (Windows: 'start', macOS: 'open', Linux: 'xdg-open')
+                                                        #[cfg(target_os = "windows")]
+                                                        let open_cmd = Command::new("cmd").args(["/C", "start", file_path.to_str().unwrap()]).spawn();
+                                                        #[cfg(target_os = "macos")]
+                                                        let open_cmd = Command::new("open").arg(file_path.to_str().unwrap()).spawn();
+                                                        #[cfg(target_os = "linux")]
+                                                        let open_cmd = Command::new("xdg-open").arg(file_path.to_str().unwrap()).spawn();
+                                                        match open_cmd {
+                                                            Ok(_) => {
+                                                                app.set_image_error("Opened image in external viewer.".to_string());
+                                                            }
+                                                            Err(e) => {
+                                                                app.set_image_error(format!("Failed to open image externally: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.set_image_error(format!("Failed to save image: {}", e));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.set_image_error(format!("Failed to download image: {}", e));
+                                            }
+                                        }
+                                    } else {
+                                        app.set_image_error("Auth error: could not get token".to_string());
+                                    }
                                 }
                             }
                             _ => {}
