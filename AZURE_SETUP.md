@@ -56,6 +56,7 @@ After registration, you'll see the **Overview** page:
    - Type `Chat.Read` and check the box
    - Type `Chat.ReadWrite` and check the box  
    - Type `offline_access` and check the box
+   - Type `Sites.Read.All` and check the box
    
    > **Note**: Make sure you're adding **Delegated** permissions, not Application permissions!
    
