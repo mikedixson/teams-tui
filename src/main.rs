@@ -1,5 +1,3 @@
-pub mod config;
-pub mod image_display;
 mod api;
 mod app;
 mod auth;
@@ -11,7 +9,8 @@ use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -24,7 +23,6 @@ async fn main() -> Result<()> {
     // Authenticate first (before setting up terminal)
     println!("TeamsTUI");
     println!("================================\n");
-
 
     let access_token = match auth::get_access_token().await {
         Ok(token) => {
@@ -103,13 +101,13 @@ async fn run_app(
     // Create a channel for receiving loaded messages
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, Vec<api::Message>)>();
 
-
     // Create a channel for receiving chat updates
     let (tx_chats, mut rx_chats) =
         tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
 
     // Create a channel for receiving loaded images (Ok = success with bytes, Err = failure)
-    let (tx_image, mut rx_image) = tokio::sync::mpsc::unbounded_channel::<(String, Result<Vec<u8>, String>)>();
+    let (tx_image, mut rx_image) =
+        tokio::sync::mpsc::unbounded_channel::<(String, Result<Vec<u8>, String>)>();
 
     // Shared HTTP client for image downloads
     let http_client = std::sync::Arc::new(reqwest::Client::new());
@@ -130,27 +128,30 @@ async fn run_app(
     });
 
     // Helper function to spawn image download task
-    let spawn_image_download = |url: String,
-                                tx_img: tokio::sync::mpsc::UnboundedSender<(String, Result<Vec<u8>, String>)>,
-                                client: std::sync::Arc<reqwest::Client>| {
-        tokio::spawn(async move {
-            let result = async {
-                let token = auth::get_valid_token_silent().await
-                    .map_err(|e| format!("Auth error: {}", e))?;
-                let bytes = image_display::download_image(&client, &url, &token).await
-                    .map_err(|e| format!("Download error: {}", e))?;
-                Ok(bytes)
-            }.await;
-            let _ = tx_img.send((url, result));
-        });
-    };
+    let spawn_image_download =
+        |url: String,
+         tx_img: tokio::sync::mpsc::UnboundedSender<(String, Result<Vec<u8>, String>)>,
+         client: std::sync::Arc<reqwest::Client>| {
+            tokio::spawn(async move {
+                let result = async {
+                    let token = auth::get_valid_token_silent()
+                        .await
+                        .map_err(|e| format!("Auth error: {}", e))?;
+                    let bytes = image_display::download_image(&client, &url, &token)
+                        .await
+                        .map_err(|e| format!("Download error: {}", e))?;
+                    Ok(bytes)
+                }
+                .await;
+                let _ = tx_img.send((url, result));
+            });
+        };
 
     // Load messages for the first chat if available
     if let Some(chat) = app.get_selected_chat() {
         let chat_id = chat.id.clone();
         let chat_index = app.selected_index;
         let tx_clone = tx.clone();
-
 
         app.set_loading_messages(true);
         tokio::spawn(async move {
@@ -169,20 +170,16 @@ async fn run_app(
             // Preserve selection
             let current_chat_id = app.get_selected_chat().map(|c| c.id.clone());
 
-
             app.set_chats(chats);
-
 
             if let Some(id) = current_chat_id {
                 if let Some(index) = app.chats.iter().position(|c| c.id == id) {
                     app.selected_index = index;
 
-
                     // Always refresh messages for the current chat to ensure we get new ones
                     let tx_clone = tx.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
-
 
                     tokio::spawn(async move {
                         if let Ok(token) = auth::get_valid_token_silent().await {
@@ -237,7 +234,10 @@ async fn run_app(
                                         let protocol = picker.new_resize_protocol(dyn_img);
                                         app.set_image_protocol(protocol);
                                     } else {
-                                        app.set_image_error("Image display not supported in this terminal".to_string());
+                                        app.set_image_error(
+                                            "Image display not supported in this terminal"
+                                                .to_string(),
+                                        );
                                     }
                                 }
                                 Err(e) => {
@@ -303,12 +303,20 @@ async fn run_app(
                                 if let Some(img) = app.get_current_viewable_image() {
                                     let url = img.url.clone();
                                     if let Ok(token) = auth::get_valid_token_silent().await {
-                                        match image_display::download_image(&http_client, &url, &token).await {
+                                        match image_display::download_image(
+                                            &http_client,
+                                            &url,
+                                            &token,
+                                        )
+                                        .await
+                                        {
                                             Ok(bytes) => {
                                                 // Save to temp file
                                                 let ext = if url.ends_with(".png") {
                                                     "png"
-                                                } else if url.ends_with(".jpg") || url.ends_with(".jpeg") {
+                                                } else if url.ends_with(".jpg")
+                                                    || url.ends_with(".jpeg")
+                                                {
                                                     "jpg"
                                                 } else if url.ends_with(".gif") {
                                                     "gif"
@@ -316,16 +324,27 @@ async fn run_app(
                                                     "img"
                                                 };
                                                 let tmp_dir = std::env::temp_dir();
-                                                let file_path = tmp_dir.join(format!("teams-tui-view.{}", ext));
+                                                let file_path =
+                                                    tmp_dir.join(format!("teams-tui-view.{}", ext));
                                                 match std::fs::write(&file_path, &bytes) {
                                                     Ok(_) => {
                                                         // Open with default viewer (Windows: 'start', macOS: 'open', Linux: 'xdg-open')
                                                         #[cfg(target_os = "windows")]
-                                                        let open_cmd = Command::new("cmd").args(["/C", "start", file_path.to_str().unwrap()]).spawn();
+                                                        let open_cmd = Command::new("cmd")
+                                                            .args([
+                                                                "/C",
+                                                                "start",
+                                                                file_path.to_str().unwrap(),
+                                                            ])
+                                                            .spawn();
                                                         #[cfg(target_os = "macos")]
-                                                        let open_cmd = Command::new("open").arg(file_path.to_str().unwrap()).spawn();
+                                                        let open_cmd = Command::new("open")
+                                                            .arg(file_path.to_str().unwrap())
+                                                            .spawn();
                                                         #[cfg(target_os = "linux")]
-                                                        let open_cmd = Command::new("xdg-open").arg(file_path.to_str().unwrap()).spawn();
+                                                        let open_cmd = Command::new("xdg-open")
+                                                            .arg(file_path.to_str().unwrap())
+                                                            .spawn();
                                                         match open_cmd {
                                                             Ok(_) => {
                                                                 app.set_image_error("Opened image in external viewer.".to_string());
@@ -336,16 +355,24 @@ async fn run_app(
                                                         }
                                                     }
                                                     Err(e) => {
-                                                        app.set_image_error(format!("Failed to save image: {}", e));
+                                                        app.set_image_error(format!(
+                                                            "Failed to save image: {}",
+                                                            e
+                                                        ));
                                                     }
                                                 }
                                             }
                                             Err(e) => {
-                                                app.set_image_error(format!("Failed to download image: {}", e));
+                                                app.set_image_error(format!(
+                                                    "Failed to download image: {}",
+                                                    e
+                                                ));
                                             }
                                         }
                                     } else {
-                                        app.set_image_error("Auth error: could not get token".to_string());
+                                        app.set_image_error(
+                                            "Auth error: could not get token".to_string(),
+                                        );
                                     }
                                 }
                             }
@@ -427,7 +454,9 @@ async fn run_app(
                                                 .is_ok()
                                             {
                                                 // Reload messages
-                                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
+                                                if let Ok(messages) =
+                                                    api::get_messages(&token, &chat_id).await
+                                                {
                                                     let _ = tx.send((chat_index, messages));
                                                 }
                                                 // Refresh chat list to update last message preview

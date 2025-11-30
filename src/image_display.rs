@@ -112,8 +112,7 @@ impl ImageCache {
 
 /// Load an image from bytes
 pub fn load_image_from_bytes(bytes: &[u8]) -> Result<DynamicImage> {
-    let image = image::load_from_memory(bytes)
-        .context("Failed to decode image")?;
+    let image = image::load_from_memory(bytes).context("Failed to decode image")?;
     Ok(image)
 }
 
@@ -136,7 +135,7 @@ fn url_to_shares_endpoint(url: &str) -> String {
 }
 
 /// Download an image from a URL using the provided access token
-/// 
+///
 /// Teams uses different URL patterns for images:
 /// - Graph API URLs: Direct access with Bearer token
 /// - SharePoint/OneDrive URLs: Uses Graph API shares endpoint to get download URL
@@ -147,12 +146,12 @@ pub async fn download_image(
     access_token: &str,
 ) -> Result<Vec<u8>> {
     let url_lower = url.to_lowercase();
-    
+
     // For SharePoint/OneDrive URLs, use the Graph API shares endpoint
     if url_lower.contains("sharepoint.com") || url_lower.contains("onedrive") {
         return download_sharepoint_image(client, url, access_token).await;
     }
-    
+
     // For other URLs (Graph API, etc.), try direct access with Bearer token
     let response = client
         .get(url)
@@ -162,7 +161,7 @@ pub async fn download_image(
         .context("Failed to send image request")?;
 
     let status = response.status();
-    
+
     if status.is_success() {
         let bytes = response
             .bytes()
@@ -170,7 +169,7 @@ pub async fn download_image(
             .context("Failed to read image bytes")?;
         return Ok(bytes.to_vec());
     }
-    
+
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         if url_lower.contains("graph.microsoft.com") {
             anyhow::bail!(
@@ -184,7 +183,7 @@ pub async fn download_image(
             );
         }
     }
-    
+
     anyhow::bail!("Failed to download image: {}", status)
 }
 
@@ -196,7 +195,7 @@ async fn download_sharepoint_image(
 ) -> Result<Vec<u8>> {
     // Step 1: Use the shares endpoint to get the driveItem with download URL
     let shares_url = url_to_shares_endpoint(sharepoint_url);
-    
+
     let response = client
         .get(&shares_url)
         .header("Authorization", format!("Bearer {}", access_token))
@@ -205,7 +204,7 @@ async fn download_sharepoint_image(
         .context("Failed to query Graph API shares endpoint")?;
 
     let status = response.status();
-    
+
     if !status.is_success() {
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             anyhow::bail!(
@@ -214,10 +213,7 @@ async fn download_sharepoint_image(
                 status
             );
         }
-        anyhow::bail!(
-            "Graph API shares endpoint returned error: {}",
-            status
-        );
+        anyhow::bail!("Graph API shares endpoint returned error: {}", status);
     }
 
     // Parse the response to get the download URL
@@ -279,10 +275,10 @@ mod tests {
     #[test]
     fn test_image_cache_basic() {
         let mut cache = ImageCache::new(2);
-        
+
         // Create a simple 1x1 test image
         let img = DynamicImage::new_rgb8(1, 1);
-        
+
         assert!(!cache.contains("test1"));
         cache.insert("test1".to_string(), img.clone());
         assert!(cache.contains("test1"));
@@ -293,11 +289,11 @@ mod tests {
     fn test_image_cache_eviction() {
         let mut cache = ImageCache::new(2);
         let img = DynamicImage::new_rgb8(1, 1);
-        
+
         cache.insert("img1".to_string(), img.clone());
         cache.insert("img2".to_string(), img.clone());
         assert_eq!(cache.images.len(), 2);
-        
+
         // This should trigger eviction
         cache.insert("img3".to_string(), img.clone());
         assert_eq!(cache.images.len(), 2);

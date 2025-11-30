@@ -383,15 +383,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             }
 
             // Show image attachment indicators
-            let image_attachments: Vec<_> = msg.attachments.iter()
-                .filter(|a| a.is_image())
-                .collect();
-            
+            let image_attachments: Vec<_> =
+                msg.attachments.iter().filter(|a| a.is_image()).collect();
+
             if !image_attachments.is_empty() {
                 for attachment in image_attachments {
                     let name = attachment.name.as_deref().unwrap_or("image");
                     let indicator = format!("📷 [Image: {}]", name);
-                    
+
                     if is_me {
                         // Right aligned image indicator - use unicode width for proper alignment
                         let display_width = indicator.width();
@@ -403,22 +402,25 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                         ]));
                     } else {
                         // Left aligned image indicator
-                        lines.push(Line::from(vec![
-                            Span::styled(indicator, Style::default().fg(Color::Magenta)),
-                        ]));
+                        lines.push(Line::from(vec![Span::styled(
+                            indicator,
+                            Style::default().fg(Color::Magenta),
+                        )]));
                     }
                 }
             }
 
             // Show non-image attachment indicators
-            let other_attachments: Vec<_> = msg.attachments.iter()
+            let other_attachments: Vec<_> = msg
+                .attachments
+                .iter()
                 .filter(|a| !a.is_image() && a.name.is_some())
                 .collect();
-            
+
             for attachment in other_attachments {
                 if let Some(name) = &attachment.name {
                     let indicator = format!("📎 [Attachment: {}]", name);
-                    
+
                     if is_me {
                         // Use unicode width for proper alignment
                         let display_width = indicator.width();
@@ -429,9 +431,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                             Span::styled(indicator, Style::default().fg(Color::DarkGray)),
                         ]));
                     } else {
-                        lines.push(Line::from(vec![
-                            Span::styled(indicator, Style::default().fg(Color::DarkGray)),
-                        ]));
+                        lines.push(Line::from(vec![Span::styled(
+                            indicator,
+                            Style::default().fg(Color::DarkGray),
+                        )]));
                     }
                 }
             }
@@ -554,18 +557,20 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
     let popup_height = (area.height as f32 * 0.8) as u16;
     let popup_x = (area.width - popup_width) / 2;
     let popup_y = (area.height - popup_height) / 2;
-    
+
     let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
-    
+
     // Clear the popup area first
     f.render_widget(Clear, popup_area);
-    
+
     // Get image name for title
     let title = if let Some(ref img) = app.viewing_image {
         let nav_hint = if app.viewable_images.len() > 1 {
-            format!(" ({}/{}) - ←/→ to navigate, ESC to close, 'o' to open externally", 
-                app.selected_image_index + 1, 
-                app.viewable_images.len())
+            format!(
+                " ({}/{}) - ←/→ to navigate, ESC to close, 'o' to open externally",
+                app.selected_image_index + 1,
+                app.viewable_images.len()
+            )
         } else {
             " - ESC to close, 'o' to open externally".to_string()
         };
@@ -573,23 +578,22 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
     } else {
         "Image Viewer - ESC to close, 'o' to open externally".to_string()
     };
-    
+
     // Create the block for the popup
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Magenta));
-    
+
     // Get the inner area for the image
     let inner_area = block.inner(popup_area);
-    
+
     // Render the block
     f.render_widget(block, popup_area);
-    
+
     // Render image or loading/error message
     if app.loading_image {
-        let loading = Paragraph::new("Loading image...")
-            .style(Style::default().fg(Color::Yellow));
+        let loading = Paragraph::new("Loading image...").style(Style::default().fg(Color::Yellow));
         f.render_widget(loading, inner_area);
     } else if let Some(ref mut protocol) = app.current_image_protocol {
         // Render the actual image using StatefulImage
@@ -612,13 +616,11 @@ fn render_image_viewer(f: &mut Frame, app: &mut App) {
         }
     } else if let Some(ref error) = app.image_error {
         // Show the specific error message
-        let error_widget = Paragraph::new(error.clone())
-            .style(Style::default().fg(Color::Red));
+        let error_widget = Paragraph::new(error.clone()).style(Style::default().fg(Color::Red));
         f.render_widget(error_widget, inner_area);
     } else {
         // No image selected or not yet loaded
-        let msg = Paragraph::new("No image selected")
-            .style(Style::default().fg(Color::Gray));
+        let msg = Paragraph::new("No image selected").style(Style::default().fg(Color::Gray));
         f.render_widget(msg, inner_area);
     }
 }

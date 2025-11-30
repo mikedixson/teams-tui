@@ -76,7 +76,7 @@ pub struct MessageAttachment {
 
 impl MessageAttachment {
     /// Check if this attachment is an image
-    /// 
+    ///
     /// Microsoft Teams uses "reference" content type for file attachments (including images)
     /// that are stored in SharePoint/OneDrive. We check the file extension for these
     /// reference-type attachments to determine if they are images.
@@ -104,7 +104,9 @@ impl MessageAttachment {
     /// Get the URL to use for downloading/displaying the image
     pub fn get_image_url(&self) -> Option<&str> {
         // Prefer thumbnail for smaller download, fall back to full content
-        self.thumbnail_url.as_deref().or(self.content_url.as_deref())
+        self.thumbnail_url
+            .as_deref()
+            .or(self.content_url.as_deref())
     }
 }
 
@@ -221,10 +223,7 @@ async fn get_chat_members(access_token: &str, chat_id: &str) -> Result<Vec<ChatM
 
 pub async fn get_messages(access_token: &str, chat_id: &str) -> Result<Vec<Message>> {
     let client = reqwest::Client::new();
-    let url = format!(
-        "{}/chats/{}/messages",
-        GRAPH_API_BASE, chat_id
-    );
+    let url = format!("{}/chats/{}/messages", GRAPH_API_BASE, chat_id);
 
     let response = client
         .get(&url)
