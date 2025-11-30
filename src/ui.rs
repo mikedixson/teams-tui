@@ -524,8 +524,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // Status bar - show image count if available
     let status_text: std::borrow::Cow<str> = if !app.viewable_images.is_empty() {
         format!(
-            "{} | {} image(s) available - press 'v' to view",
+            "{} | Images: {}/{} (←/→ to browse, v to view externally)",
             app.status,
+            app.selected_image_index + 1,
             app.viewable_images.len()
         )
         .into()
@@ -548,7 +549,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 /// Render image viewer as a centered popup overlay
 fn render_image_viewer(f: &mut Frame, app: &mut App) {
     let area = f.area();
-    
     // Create a centered popup that takes 80% of the screen
     let popup_width = (area.width as f32 * 0.8) as u16;
     let popup_height = (area.height as f32 * 0.8) as u16;

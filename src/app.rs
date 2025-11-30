@@ -10,13 +10,13 @@ pub enum ActivePane {
     Messages,
 }
 
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FocusedPane {
     ChatList,
     Messages,
 }
 
-/// Represents an image that can be viewed
 #[derive(Clone)]
 pub struct ViewableImage {
     pub name: String,
@@ -39,64 +39,18 @@ pub struct App {
     pub focused_pane: FocusedPane,
     pub chat_list_area: Rect,
     pub messages_area: Rect,
-    /// Image picker for creating image protocols (optional, may fail on unsupported terminals)
     pub image_picker: Option<ImagePicker>,
-    /// Cache for downloaded images
     pub image_cache: ImageCache,
-    /// Prepared image protocols ready for rendering (keyed by attachment URL)
     pub image_protocols: HashMap<String, StatefulProtocol>,
-    /// Image viewing mode - when Some, display the image viewer
     pub viewing_image: Option<ViewableImage>,
-    /// Current image protocol for viewing
     pub current_image_protocol: Option<StatefulProtocol>,
-    /// Whether we're currently loading an image
     pub loading_image: bool,
-    /// Error message for image loading (persists until cleared)
     pub image_error: Option<String>,
-    /// List of viewable images in current messages
     pub viewable_images: Vec<ViewableImage>,
-    /// Index of currently selected/viewing image
     pub selected_image_index: usize,
 }
 
 impl App {
-    pub fn new() -> App {
-        // Try to create image picker, but don't fail if terminal doesn't support it
-        let image_picker = match ImagePicker::new() {
-            Ok(picker) => Some(picker),
-            Err(_) => {
-                // Fall back to a picker with default font size
-                Some(ImagePicker::with_fallback_fontsize())
-            }
-        };
-
-        App {
-            chats: Vec::new(),
-            status: "Loading...".to_string(),
-            selected_index: 0,
-            current_user_name: None,
-            messages: Vec::new(),
-            loading_messages: false,
-            input_mode: false,
-            input_buffer: String::new(),
-            scroll_offset: 0,
-            max_scroll: 0,
-            snap_to_bottom: true,
-            active_pane: ActivePane::ChatList,
-            focused_pane: FocusedPane::ChatList,
-            chat_list_area: Rect::default(),
-            messages_area: Rect::default(),
-            image_picker,
-            image_cache: ImageCache::new(50), // Cache up to 50 images
-            image_protocols: HashMap::new(),
-            viewing_image: None,
-            current_image_protocol: None,
-            loading_image: false,
-            image_error: None,
-            viewable_images: Vec::new(),
-            selected_image_index: 0,
-        }
-    }
 
     pub fn set_chats(&mut self, chats: Vec<Chat>) {
         self.chats = chats;

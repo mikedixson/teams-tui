@@ -1,3 +1,5 @@
+pub mod config;
+pub mod image_display;
 mod api;
 mod app;
 mod auth;
@@ -22,6 +24,7 @@ async fn main() -> Result<()> {
     // Authenticate first (before setting up terminal)
     println!("TeamsTUI");
     println!("================================\n");
+
 
     let access_token = match auth::get_access_token().await {
         Ok(token) => {
@@ -100,6 +103,7 @@ async fn run_app(
     // Create a channel for receiving loaded messages
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, Vec<api::Message>)>();
 
+
     // Create a channel for receiving chat updates
     let (tx_chats, mut rx_chats) =
         tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
@@ -147,6 +151,7 @@ async fn run_app(
         let chat_index = app.selected_index;
         let tx_clone = tx.clone();
 
+
         app.set_loading_messages(true);
         tokio::spawn(async move {
             if let Ok(token) = auth::get_valid_token_silent().await {
@@ -164,16 +169,20 @@ async fn run_app(
             // Preserve selection
             let current_chat_id = app.get_selected_chat().map(|c| c.id.clone());
 
+
             app.set_chats(chats);
+
 
             if let Some(id) = current_chat_id {
                 if let Some(index) = app.chats.iter().position(|c| c.id == id) {
                     app.selected_index = index;
 
+
                     // Always refresh messages for the current chat to ensure we get new ones
                     let tx_clone = tx.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
+
 
                     tokio::spawn(async move {
                         if let Ok(token) = auth::get_valid_token_silent().await {
@@ -418,9 +427,7 @@ async fn run_app(
                                                 .is_ok()
                                             {
                                                 // Reload messages
-                                                if let Ok(messages) =
-                                                    api::get_messages(&token, &chat_id).await
-                                                {
+                                                if let Ok(messages) = api::get_messages(&token, &chat_id).await {
                                                     let _ = tx.send((chat_index, messages));
                                                 }
                                                 // Refresh chat list to update last message preview
