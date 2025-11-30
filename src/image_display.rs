@@ -153,12 +153,12 @@ pub async fn download_image(
         if url_lower.contains("sharepoint.com") || url_lower.contains("onedrive") {
             anyhow::bail!(
                 "Cannot access SharePoint/OneDrive file ({}). \
-                File attachments require Sites.Read.All permission.", 
+                Delete ~/.config/teams-tui/token.json and restart to re-authenticate with updated permissions.", 
                 status
             );
         } else if url_lower.contains("graph.microsoft.com") {
             anyhow::bail!(
-                "Graph API access denied ({}). Token may have expired or lack required permissions.",
+                "Graph API access denied ({}). Token may have expired - try deleting ~/.config/teams-tui/token.json and restart.",
                 status
             );
         } else {

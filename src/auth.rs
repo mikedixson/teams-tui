@@ -49,7 +49,7 @@ fn get_client_id() -> String {
 }
 
 const TENANT: &str = "common";
-const SCOPES: &str = "User.Read Chat.ReadWrite offline_access";
+const SCOPES: &str = "User.Read Chat.ReadWrite Sites.Read.All offline_access";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeviceCodeResponse {
