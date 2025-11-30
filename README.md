@@ -13,6 +13,7 @@ Use arrow keys (or h/j) to switch chats, press *i* to enter message-input mode, 
 - 🖱️ Mouse support (click to select, scroll wheel to navigate)
 - 🎨 Modern, colorful terminal UI
 - 💾 Token persistence (no need to re-authenticate)
+- 🖼️ Image attachment indicators (with graphics protocol support)
 
 ## Quick Start
 
@@ -78,6 +79,9 @@ teams-tui
 - `↓` / `j` - Move down  
 - `PgUp` / `PgDn` - Scroll chat
 - `i` - Compose message
+- `v` - View images (when images are available)
+- `←` / `→` or `h` / `l` - Navigate between images (in image viewer)
+- `ESC` - Close image viewer / Cancel input
 - `q` - Quit
 
 ## Mouse Controls
@@ -98,6 +102,7 @@ This app uses:
 - **Microsoft Graph API** to fetch Teams data
 - **Ratatui** for the terminal UI
 - **OAuth2 Device Code Flow** for authentication
+- **ratatui-image** for image rendering (Kitty, Sixel, iTerm2, halfblocks)
 
 Tokens are saved to `~/.config/teams-tui/token.json` and automatically refreshed.
 
@@ -109,10 +114,26 @@ If at some point you want/need to re-authenticate, just delete the `token.json` 
 
 - [ ] Set messages as `read` when viewed
 - [ ] Send multi line messages
-- [ ] Adding info when attachment/image was added to a message (currently it strips attachments)
-- [ ] Showing images
+- [x] Adding info when attachment/image was added to a message (currently it strips attachments)
+- [x] Showing images (using Kitty graphics protocol with Sixel/iTerm2/halfblock fallbacks)
 - [ ] Yanking urls (eventually adding some kind of vim mode to select/yank any text)
 - [ ] Notification when new message will arrive (bell in terminal? system notification? maybe notification mode so user can switch between different modes? 0 - none, 1 - terminal bell, 2 - system notification)
+
+## Image Display
+
+TeamsTUI supports displaying images using the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate, which provides multiple graphics protocol backends:
+
+- **Kitty** - The Kitty terminal graphics protocol (best quality)
+- **Sixel** - Works with xterm, foot, mlterm, and other terminals
+- **iTerm2** - For iTerm2 on macOS, WezTerm, and Rio
+- **Halfblocks** - Unicode fallback for terminals without graphics support
+
+The terminal protocol is automatically detected at startup. When messages contain image attachments:
+1. An indicator (📷 [Image: filename]) is shown in the message
+2. The status bar shows how many images are available
+3. Press `v` to open the image viewer and display the actual image
+4. Use `←`/`→` or `h`/`l` to navigate between images
+5. Press `ESC` to close the viewer
 
 ## License
 

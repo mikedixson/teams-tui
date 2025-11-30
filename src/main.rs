@@ -2,13 +2,15 @@ mod api;
 mod app;
 mod auth;
 pub mod config;
+pub mod image_display;
 mod ui;
 
 use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+        MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -74,7 +76,6 @@ async fn main() -> Result<()> {
     }
 
     // Run app
-    // Run app
     let res = run_app(&mut terminal, &mut app).await;
 
     // Restore terminal
@@ -104,6 +105,13 @@ async fn run_app(
     let (tx_chats, mut rx_chats) =
         tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
 
+    // Create a channel for receiving loaded images (Ok = success with bytes, Err = failure)
+    let (tx_image, mut rx_image) =
+        tokio::sync::mpsc::unbounded_channel::<(String, Result<Vec<u8>, String>)>();
+
+    // Shared HTTP client for image downloads
+    let http_client = std::sync::Arc::new(reqwest::Client::new());
+
     // Spawn background task to refresh chats
     let tx_chats_clone = tx_chats.clone();
     tokio::spawn(async move {
@@ -118,6 +126,26 @@ async fn run_app(
             }
         }
     });
+
+    // Helper function to spawn image download task
+    let spawn_image_download =
+        |url: String,
+         tx_img: tokio::sync::mpsc::UnboundedSender<(String, Result<Vec<u8>, String>)>,
+         client: std::sync::Arc<reqwest::Client>| {
+            tokio::spawn(async move {
+                let result = async {
+                    let token = auth::get_valid_token_silent()
+                        .await
+                        .map_err(|e| format!("Auth error: {}", e))?;
+                    let bytes = image_display::download_image(&client, &url, &token)
+                        .await
+                        .map_err(|e| format!("Download error: {}", e))?;
+                    Ok(bytes)
+                }
+                .await;
+                let _ = tx_img.send((url, result));
+            });
+        };
 
     // Load messages for the first chat if available
     if let Some(chat) = app.get_selected_chat() {
@@ -135,6 +163,7 @@ async fn run_app(
         });
     }
 
+    use std::process::Command;
     loop {
         // Check for chat updates
         while let Ok((chats, _)) = rx_chats.try_recv() {
@@ -148,7 +177,6 @@ async fn run_app(
                     app.selected_index = index;
 
                     // Always refresh messages for the current chat to ensure we get new ones
-                    // The check will happen when we receive the messages
                     let tx_clone = tx.clone();
                     let chat_id = id.clone();
                     let chat_index = index;
@@ -192,6 +220,39 @@ async fn run_app(
             }
         }
 
+        // Check for loaded images
+        while let Ok((url, result)) = rx_image.try_recv() {
+            // Only process if we're still viewing this image
+            if let Some(ref viewing) = app.viewing_image {
+                if viewing.url == url {
+                    match result {
+                        Ok(bytes) => {
+                            // Try to decode and create protocol
+                            match image::load_from_memory(&bytes) {
+                                Ok(dyn_img) => {
+                                    if let Some(ref mut picker) = app.image_picker {
+                                        let protocol = picker.new_resize_protocol(dyn_img);
+                                        app.set_image_protocol(protocol);
+                                    } else {
+                                        app.set_image_error(
+                                            "Image display not supported in this terminal"
+                                                .to_string(),
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    app.set_image_error(format!("Failed to decode image: {}", e));
+                                }
+                            }
+                        }
+                        Err(error_msg) => {
+                            app.set_image_error(error_msg);
+                        }
+                    }
+                }
+            }
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
         // Use poll with timeout to allow checking for messages
@@ -200,10 +261,170 @@ async fn run_app(
 
             match event::read()? {
                 Event::Key(key) => {
+                    // Only handle key press events, ignore release and repeat
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+
+                    // Handle image viewing mode first
+                    if app.is_viewing_image() {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                app.stop_viewing_image();
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                app.previous_image();
+                                // Load the new image
+                                if let Some(img) = app.get_current_viewable_image().cloned() {
+                                    let url = img.url.clone();
+                                    app.start_viewing_image(img);
+                                    spawn_image_download(
+                                        url,
+                                        tx_image.clone(),
+                                        http_client.clone(),
+                                    );
+                                }
+                            }
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                app.next_image();
+                                // Load the new image
+                                if let Some(img) = app.get_current_viewable_image().cloned() {
+                                    let url = img.url.clone();
+                                    app.start_viewing_image(img);
+                                    spawn_image_download(
+                                        url,
+                                        tx_image.clone(),
+                                        http_client.clone(),
+                                    );
+                                }
+                            }
+                            KeyCode::Char('o') => {
+                                // View externally: download image and open with default viewer
+                                if let Some(img) = app.get_current_viewable_image() {
+                                    let url = img.url.clone();
+                                    if let Ok(token) = auth::get_valid_token_silent().await {
+                                        match image_display::download_image(
+                                            &http_client,
+                                            &url,
+                                            &token,
+                                        )
+                                        .await
+                                        {
+                                            Ok(bytes) => {
+                                                // Save to temp file
+                                                let ext = if url.ends_with(".png") {
+                                                    "png"
+                                                } else if url.ends_with(".jpg")
+                                                    || url.ends_with(".jpeg")
+                                                {
+                                                    "jpg"
+                                                } else if url.ends_with(".gif") {
+                                                    "gif"
+                                                } else {
+                                                    "img"
+                                                };
+                                                let tmp_dir = std::env::temp_dir();
+                                                let file_path =
+                                                    tmp_dir.join(format!("teams-tui-view.{}", ext));
+                                                match std::fs::write(&file_path, &bytes) {
+                                                    Ok(_) => {
+                                                        // Open with default viewer (Windows: 'start', macOS: 'open', Linux: 'xdg-open')
+                                                        #[cfg(target_os = "windows")]
+                                                        let open_cmd = Command::new("cmd")
+                                                            .args([
+                                                                "/C",
+                                                                "start",
+                                                                file_path.to_str().unwrap(),
+                                                            ])
+                                                            .spawn();
+                                                        #[cfg(target_os = "macos")]
+                                                        let open_cmd = Command::new("open")
+                                                            .arg(file_path.to_str().unwrap())
+                                                            .spawn();
+                                                        #[cfg(target_os = "linux")]
+                                                        let open_cmd = Command::new("xdg-open")
+                                                            .arg(file_path.to_str().unwrap())
+                                                            .spawn();
+                                                        match open_cmd {
+                                                            Ok(_) => {
+                                                                app.set_image_error("Opened image in external viewer.".to_string());
+                                                            }
+                                                            Err(e) => {
+                                                                app.set_image_error(format!("Failed to open image externally: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        app.set_image_error(format!(
+                                                            "Failed to save image: {}",
+                                                            e
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                app.set_image_error(format!(
+                                                    "Failed to download image: {}",
+                                                    e
+                                                ));
+                                            }
+                                        }
+                                    } else {
+                                        app.set_image_error(
+                                            "Auth error: could not get token".to_string(),
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
+                    // Normal key handling
                     match key.code {
                         KeyCode::Char('q') if !app.input_mode => return Ok(()),
-                        KeyCode::Down | KeyCode::Char('j') if !app.input_mode => app.next_chat(),
-                        KeyCode::Up | KeyCode::Char('k') if !app.input_mode => app.previous_chat(),
+                        KeyCode::Tab if !app.input_mode => {
+                            // Toggle focused pane
+                            app.focused_pane = match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => {
+                                    crate::app::FocusedPane::Messages
+                                }
+                                crate::app::FocusedPane::Messages => {
+                                    crate::app::FocusedPane::ChatList
+                                }
+                            };
+                        }
+                        KeyCode::Down | KeyCode::Char('j') if !app.input_mode => {
+                            match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => app.next_chat(),
+                                crate::app::FocusedPane::Messages => {
+                                    // Scroll messages down
+                                    app.scroll_offset = app.scroll_offset.saturating_add(1);
+                                    if app.scroll_offset >= app.max_scroll {
+                                        app.snap_to_bottom = true;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Up | KeyCode::Char('k') if !app.input_mode => {
+                            match app.focused_pane {
+                                crate::app::FocusedPane::ChatList => app.previous_chat(),
+                                crate::app::FocusedPane::Messages => {
+                                    // Scroll messages up
+                                    app.snap_to_bottom = false;
+                                    app.scroll_offset = app.scroll_offset.saturating_sub(1);
+                                }
+                            }
+                        }
+                        KeyCode::Char('v') if !app.input_mode => {
+                            // View image - open image viewer if images are available
+                            if let Some(img) = app.get_current_viewable_image().cloned() {
+                                let url = img.url.clone();
+                                app.start_viewing_image(img);
+                                spawn_image_download(url, tx_image.clone(), http_client.clone());
+                            }
+                        }
                         KeyCode::Char('i') if !app.input_mode => {
                             app.input_mode = true;
                             app.input_buffer.clear();
@@ -223,7 +444,7 @@ async fn run_app(
                                     let chat_id = chat.id.clone();
                                     let chat_index = app.selected_index;
                                     let tx = tx.clone();
-                                    let tx_chats = tx_chats.clone(); // Clone for refresh
+                                    let tx_chats = tx_chats.clone();
 
                                     app.snap_to_bottom = true;
                                     tokio::spawn(async move {
@@ -286,9 +507,10 @@ async fn run_app(
                         MouseEventKind::Down(MouseButton::Left) => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
 
                                 // Calculate which chat was clicked (accounting for border)
-                                let inner_y = y.saturating_sub(app.chat_list_area.y + 1); // +1 for top border
+                                let inner_y = y.saturating_sub(app.chat_list_area.y + 1);
                                 let clicked_index = inner_y as usize;
 
                                 if clicked_index < app.chats.len() {
@@ -296,17 +518,20 @@ async fn run_app(
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                             }
                         }
                         MouseEventKind::ScrollUp => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
                                 // Scroll chat list up
                                 if app.selected_index > 0 {
                                     app.selected_index -= 1;
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                                 // Scroll messages up
                                 app.snap_to_bottom = false;
                                 app.scroll_offset = app.scroll_offset.saturating_sub(3);
@@ -315,6 +540,7 @@ async fn run_app(
                         MouseEventKind::ScrollDown => {
                             if in_chat_list {
                                 app.active_pane = ActivePane::ChatList;
+                                app.focused_pane = crate::app::FocusedPane::ChatList;
                                 // Scroll chat list down
                                 if !app.chats.is_empty() && app.selected_index < app.chats.len() - 1
                                 {
@@ -322,6 +548,7 @@ async fn run_app(
                                 }
                             } else if in_messages {
                                 app.active_pane = ActivePane::Messages;
+                                app.focused_pane = crate::app::FocusedPane::Messages;
                                 // Scroll messages down
                                 app.scroll_offset = app.scroll_offset.saturating_add(3);
                                 if app.scroll_offset >= app.max_scroll {

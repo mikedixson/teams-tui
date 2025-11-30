@@ -1,11 +1,13 @@
 use crate::app::{App, FocusedPane};
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
+use ratatui_image::StatefulImage;
+use unicode_width::UnicodeWidthStr;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let main_chunks = Layout::default()
@@ -379,6 +381,63 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     lines.push(Line::from(line));
                 }
             }
+
+            // Show image attachment indicators
+            let image_attachments: Vec<_> =
+                msg.attachments.iter().filter(|a| a.is_image()).collect();
+
+            if !image_attachments.is_empty() {
+                for attachment in image_attachments {
+                    let name = attachment.name.as_deref().unwrap_or("image");
+                    let indicator = format!("📷 [Image: {}]", name);
+
+                    if is_me {
+                        // Right aligned image indicator - use unicode width for proper alignment
+                        let display_width = indicator.width();
+                        let padding = width.saturating_sub(display_width);
+                        let pad_str = " ".repeat(padding);
+                        lines.push(Line::from(vec![
+                            Span::raw(pad_str),
+                            Span::styled(indicator, Style::default().fg(Color::Magenta)),
+                        ]));
+                    } else {
+                        // Left aligned image indicator
+                        lines.push(Line::from(vec![Span::styled(
+                            indicator,
+                            Style::default().fg(Color::Magenta),
+                        )]));
+                    }
+                }
+            }
+
+            // Show non-image attachment indicators
+            let other_attachments: Vec<_> = msg
+                .attachments
+                .iter()
+                .filter(|a| !a.is_image() && a.name.is_some())
+                .collect();
+
+            for attachment in other_attachments {
+                if let Some(name) = &attachment.name {
+                    let indicator = format!("📎 [Attachment: {}]", name);
+
+                    if is_me {
+                        // Use unicode width for proper alignment
+                        let display_width = indicator.width();
+                        let padding = width.saturating_sub(display_width);
+                        let pad_str = " ".repeat(padding);
+                        lines.push(Line::from(vec![
+                            Span::raw(pad_str),
+                            Span::styled(indicator, Style::default().fg(Color::DarkGray)),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![Span::styled(
+                            indicator,
+                            Style::default().fg(Color::DarkGray),
+                        )]));
+                    }
+                }
+            }
         }
 
         lines
@@ -465,10 +524,103 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ));
     }
 
-    // Status bar
-    let status = Paragraph::new(app.status.as_str())
+    // Status bar - show image count if available
+    let status_text: std::borrow::Cow<str> = if !app.viewable_images.is_empty() {
+        format!(
+            "{} | Images: {}/{} (←/→ to browse, v to view externally)",
+            app.status,
+            app.selected_image_index + 1,
+            app.viewable_images.len()
+        )
+        .into()
+    } else {
+        (&app.status).into()
+    };
+
+    let status = Paragraph::new(status_text.as_ref())
         .block(Block::default().title("Status").borders(Borders::ALL))
         .style(Style::default().fg(Color::Green));
 
     f.render_widget(status, main_chunks[1]);
+
+    // Image viewer overlay
+    if app.is_viewing_image() {
+        render_image_viewer(f, app);
+    }
+}
+
+/// Render image viewer as a centered popup overlay
+fn render_image_viewer(f: &mut Frame, app: &mut App) {
+    let area = f.area();
+    // Create a centered popup that takes 80% of the screen
+    let popup_width = (area.width as f32 * 0.8) as u16;
+    let popup_height = (area.height as f32 * 0.8) as u16;
+    let popup_x = (area.width - popup_width) / 2;
+    let popup_y = (area.height - popup_height) / 2;
+
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    // Clear the popup area first
+    f.render_widget(Clear, popup_area);
+
+    // Get image name for title
+    let title = if let Some(ref img) = app.viewing_image {
+        let nav_hint = if app.viewable_images.len() > 1 {
+            format!(
+                " ({}/{}) - ←/→ to navigate, ESC to close, 'o' to open externally",
+                app.selected_image_index + 1,
+                app.viewable_images.len()
+            )
+        } else {
+            " - ESC to close, 'o' to open externally".to_string()
+        };
+        format!("Image: {}{}", img.name, nav_hint)
+    } else {
+        "Image Viewer - ESC to close, 'o' to open externally".to_string()
+    };
+
+    // Create the block for the popup
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+
+    // Get the inner area for the image
+    let inner_area = block.inner(popup_area);
+
+    // Render the block
+    f.render_widget(block, popup_area);
+
+    // Render image or loading/error message
+    if app.loading_image {
+        let loading = Paragraph::new("Loading image...").style(Style::default().fg(Color::Yellow));
+        f.render_widget(loading, inner_area);
+    } else if let Some(ref mut protocol) = app.current_image_protocol {
+        // Render the actual image using StatefulImage
+        let image_widget = StatefulImage::default();
+        f.render_stateful_widget(image_widget, inner_area, protocol);
+        // Show protocol info if not graphics
+        if let Some(picker) = app.image_picker.as_ref() {
+            if !picker.supports_graphics() {
+                let msg = Paragraph::new("⚠ Image display is limited: your terminal does not support graphics protocols. Showing Unicode fallback.")
+                    .style(Style::default().fg(Color::Yellow));
+                // Render message at bottom of popup
+                let msg_area = Rect {
+                    x: inner_area.x,
+                    y: inner_area.y + inner_area.height.saturating_sub(2),
+                    width: inner_area.width,
+                    height: 2,
+                };
+                f.render_widget(msg, msg_area);
+            }
+        }
+    } else if let Some(ref error) = app.image_error {
+        // Show the specific error message
+        let error_widget = Paragraph::new(error.clone()).style(Style::default().fg(Color::Red));
+        f.render_widget(error_widget, inner_area);
+    } else {
+        // No image selected or not yet loaded
+        let msg = Paragraph::new("No image selected").style(Style::default().fg(Color::Gray));
+        f.render_widget(msg, inner_area);
+    }
 }
