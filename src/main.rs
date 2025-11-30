@@ -9,7 +9,7 @@ use crate::app::{ActivePane, App};
 use anyhow::Result;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEventKind,
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -104,8 +104,8 @@ async fn run_app(
     let (tx_chats, mut rx_chats) =
         tokio::sync::mpsc::unbounded_channel::<(Vec<api::Chat>, Option<String>)>();
 
-    // Create a channel for receiving loaded images
-    let (tx_image, mut rx_image) = tokio::sync::mpsc::unbounded_channel::<(String, Vec<u8>)>();
+    // Create a channel for receiving loaded images (Ok = success with bytes, Err = failure)
+    let (tx_image, mut rx_image) = tokio::sync::mpsc::unbounded_channel::<(String, Result<Vec<u8>, String>)>();
 
     // Shared HTTP client for image downloads
     let http_client = std::sync::Arc::new(reqwest::Client::new());
@@ -127,14 +127,17 @@ async fn run_app(
 
     // Helper function to spawn image download task
     let spawn_image_download = |url: String,
-                                tx_img: tokio::sync::mpsc::UnboundedSender<(String, Vec<u8>)>,
+                                tx_img: tokio::sync::mpsc::UnboundedSender<(String, Result<Vec<u8>, String>)>,
                                 client: std::sync::Arc<reqwest::Client>| {
         tokio::spawn(async move {
-            if let Ok(token) = auth::get_valid_token_silent().await {
-                if let Ok(bytes) = image_display::download_image(&client, &url, &token).await {
-                    let _ = tx_img.send((url, bytes));
-                }
-            }
+            let result = async {
+                let token = auth::get_valid_token_silent().await
+                    .map_err(|e| format!("Auth error: {}", e))?;
+                let bytes = image_display::download_image(&client, &url, &token).await
+                    .map_err(|e| format!("Download error: {}", e))?;
+                Ok(bytes)
+            }.await;
+            let _ = tx_img.send((url, result));
         });
     };
 
@@ -211,18 +214,27 @@ async fn run_app(
         }
 
         // Check for loaded images
-        while let Ok((url, bytes)) = rx_image.try_recv() {
+        while let Ok((url, result)) = rx_image.try_recv() {
             // Only process if we're still viewing this image
             if let Some(ref viewing) = app.viewing_image {
                 if viewing.url == url {
-                    // Try to decode and create protocol
-                    if let Ok(dyn_img) = image::load_from_memory(&bytes) {
-                        if let Some(ref mut picker) = app.image_picker {
-                            let protocol = picker.new_resize_protocol(dyn_img);
-                            app.set_image_protocol(protocol);
+                    match result {
+                        Ok(bytes) => {
+                            // Try to decode and create protocol
+                            if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+                                if let Some(ref mut picker) = app.image_picker {
+                                    let protocol = picker.new_resize_protocol(dyn_img);
+                                    app.set_image_protocol(protocol);
+                                }
+                            } else {
+                                app.loading_image = false;
+                                app.status = "Failed to decode image".to_string();
+                            }
                         }
-                    } else {
-                        app.loading_image = false;
+                        Err(error_msg) => {
+                            app.loading_image = false;
+                            app.status = format!("Image load failed: {}", error_msg);
+                        }
                     }
                 }
             }
@@ -236,6 +248,11 @@ async fn run_app(
 
             match event::read()? {
                 Event::Key(key) => {
+                    // Only handle key press events, ignore release and repeat
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+                    
                     // Handle image viewing mode first
                     if app.is_viewing_image() {
                         match key.code {
