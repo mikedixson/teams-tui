@@ -11,6 +11,16 @@ The Microsoft Graph Explorer Client ID has restrictions. You need to register yo
 Open your browser and navigate to:
 **https://entra.microsoft.com/** (or **https://portal.azure.com**)
 
+### How to Find Your Tenant ID
+
+After registering your application, you may need your Azure AD Tenant ID for authentication or configuration. To find it:
+
+1. In the Azure Portal, go to **Microsoft Entra ID** (or **Azure Active Directory**).
+2. On the Overview page, look for **Tenant ID** (it looks like: `abcd1234-5678-90ef-ghij-1234567890ab`).
+3. Copy and save this value for later use.
+
+You can also find the Tenant ID on the Overview page of your App Registration, under **Directory (tenant) ID**.
+
 ### 2. Register a New Application
 
 1. In the left sidebar, navigate to: **Identity** → **Applications** → **App registrations**
