@@ -51,6 +51,8 @@ pub struct App {
     pub current_image_protocol: Option<StatefulProtocol>,
     /// Whether we're currently loading an image
     pub loading_image: bool,
+    /// Error message for image loading (persists until cleared)
+    pub image_error: Option<String>,
     /// List of viewable images in current messages
     pub viewable_images: Vec<ViewableImage>,
     /// Index of currently selected/viewing image
@@ -90,6 +92,7 @@ impl App {
             viewing_image: None,
             current_image_protocol: None,
             loading_image: false,
+            image_error: None,
             viewable_images: Vec::new(),
             selected_image_index: 0,
         }
@@ -190,12 +193,20 @@ impl App {
         self.viewing_image = Some(image);
         self.loading_image = true;
         self.current_image_protocol = None;
+        self.image_error = None; // Clear any previous error
     }
 
     /// Set the loaded image protocol for viewing
     pub fn set_image_protocol(&mut self, protocol: StatefulProtocol) {
         self.current_image_protocol = Some(protocol);
         self.loading_image = false;
+        self.image_error = None;
+    }
+
+    /// Set an image loading error
+    pub fn set_image_error(&mut self, error: String) {
+        self.loading_image = false;
+        self.image_error = Some(error);
     }
 
     /// Stop viewing the current image
@@ -203,6 +214,7 @@ impl App {
         self.viewing_image = None;
         self.current_image_protocol = None;
         self.loading_image = false;
+        self.image_error = None;
     }
 
     /// Get the current viewable image if any

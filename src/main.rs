@@ -227,19 +227,16 @@ async fn run_app(
                                         let protocol = picker.new_resize_protocol(dyn_img);
                                         app.set_image_protocol(protocol);
                                     } else {
-                                        app.loading_image = false;
-                                        app.status = "Image display not supported in this terminal".to_string();
+                                        app.set_image_error("Image display not supported in this terminal".to_string());
                                     }
                                 }
                                 Err(e) => {
-                                    app.loading_image = false;
-                                    app.status = format!("Failed to decode image: {}", e);
+                                    app.set_image_error(format!("Failed to decode image: {}", e));
                                 }
                             }
                         }
                         Err(error_msg) => {
-                            app.loading_image = false;
-                            app.status = format!("Image load failed: {}", error_msg);
+                            app.set_image_error(error_msg);
                         }
                     }
                 }

@@ -116,11 +116,17 @@ pub fn load_image_from_bytes(bytes: &[u8]) -> Result<DynamicImage> {
 }
 
 /// Download an image from a URL using the provided access token
+/// 
+/// Teams uses different URL patterns for images:
+/// - Graph API URLs: Direct access with Bearer token
+/// - SharePoint/OneDrive URLs: May require redirect following
+/// - Hosted content: Inline images embedded in messages
 pub async fn download_image(
     client: &reqwest::Client,
     url: &str,
     access_token: &str,
 ) -> Result<Vec<u8>> {
+    // Try with Bearer token first
     let response = client
         .get(url)
         .header("Authorization", format!("Bearer {}", access_token))
@@ -128,16 +134,43 @@ pub async fn download_image(
         .await
         .context("Failed to send image request")?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to download image: {}", response.status());
+    let status = response.status();
+    
+    if status.is_success() {
+        let bytes = response
+            .bytes()
+            .await
+            .context("Failed to read image bytes")?;
+        return Ok(bytes.to_vec());
     }
-
-    let bytes = response
-        .bytes()
-        .await
-        .context("Failed to read image bytes")?;
-
-    Ok(bytes.to_vec())
+    
+    // If we get 401/403, the URL might be a SharePoint/OneDrive URL
+    // that requires different handling or the attachment is not accessible
+    // via the current token's permissions
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        // Try to provide more helpful error message
+        let url_lower = url.to_lowercase();
+        if url_lower.contains("sharepoint.com") || url_lower.contains("onedrive") {
+            anyhow::bail!(
+                "Cannot access SharePoint/OneDrive file ({}). \
+                File attachments require Sites.Read.All permission.", 
+                status
+            );
+        } else if url_lower.contains("graph.microsoft.com") {
+            anyhow::bail!(
+                "Graph API access denied ({}). Token may have expired or lack required permissions.",
+                status
+            );
+        } else {
+            anyhow::bail!(
+                "Access denied ({}) - URL may require additional permissions: {}",
+                status,
+                if url.len() > 80 { &url[..80] } else { url }
+            );
+        }
+    }
+    
+    anyhow::bail!("Failed to download image: {} - {}", status, url)
 }
 
 /// Print information about the detected image protocol
