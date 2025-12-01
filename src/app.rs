@@ -39,6 +39,7 @@ pub struct App {
     pub chat_list_area: Rect,
     pub messages_area: Rect,
     pub image_picker: Option<ImagePicker>,
+    #[allow(dead_code)]
     pub image_cache: ImageCache,
     pub image_protocols: HashMap<String, StatefulProtocol>,
     pub viewing_image: Option<ViewableImage>,
@@ -49,6 +50,7 @@ pub struct App {
     pub selected_image_index: usize,
 }
 
+#[allow(dead_code)]
 impl App {
     pub fn new() -> Self {
         App {

@@ -107,7 +107,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let messages_content = if app.loading_messages || app.messages.is_empty() {
         vec![Line::from("Loading messages...")]
     } else {
-        let width = messages_chunks[0].width.saturating_sub(2) as usize; // Account for borders
+        // Reserve an extra column as a safety padding so text never touches the vertical border
+        // This prevents terminal selections (e.g. Ctrl+click) from accidentally including the '|' border
+        let width = messages_chunks[0].width.saturating_sub(3) as usize; // Account for borders + 1 pad
         let max_line_width = (width as f32 * 0.9) as usize; // Max 90% width for messages
 
         let mut lines = Vec::new();

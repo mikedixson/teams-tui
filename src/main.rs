@@ -20,18 +20,44 @@ use std::io;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Authenticate first (before setting up terminal)
+    // Load .env and authenticate first (before setting up terminal)
+    dotenv::dotenv().ok();
     println!("TeamsTUI");
     println!("================================\n");
 
-    let access_token = match auth::get_access_token().await {
+    // Try silent first
+    let access_token = match auth::get_valid_token_silent().await {
         Ok(token) => {
             println!("✓ Authentication successful!\n");
             token
         }
-        Err(e) => {
-            eprintln!("✗ Authentication failed: {}", e);
-            return Err(e);
+        Err(_) => {
+            // Interactive device code flow: start, show the message, then poll
+            match auth::start_device_flow().await {
+                Ok(device_code_response) => {
+                    println!("{}\n", device_code_response.message);
+                    println!("Waiting for authentication...\n");
+                    match auth::poll_for_token(
+                        &device_code_response.device_code,
+                        device_code_response.interval,
+                    )
+                    .await
+                    {
+                        Ok(token_resp) => {
+                            println!("✓ Authentication successful!\n");
+                            token_resp.access_token
+                        }
+                        Err(e) => {
+                            eprintln!("✗ Authentication failed: {}", e);
+                            return Err(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("✗ Failed to start device flow: {}", e);
+                    return Err(e);
+                }
+            }
         }
     };
 

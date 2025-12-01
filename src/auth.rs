@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -30,8 +31,7 @@ fn load_config() -> Option<Config> {
 }
 
 fn get_client_id() -> String {
-    // 1. Try env var
-    dotenv::dotenv().ok();
+    // 1. Try env var (dotenv should be initialized at startup)
     if let Ok(id) = std::env::var("CLIENT_ID") {
         return id;
     }
@@ -43,12 +43,28 @@ fn get_client_id() -> String {
         }
     }
 
-    // 3. Fallback
+    // 3. Fallback (public sample client) - still warn
     eprintln!("Warning: CLIENT_ID not found in environment or config, using default fallback.");
     "d3590ed6-52b3-4102-aeff-aad2292ab01c".to_string()
 }
 
-const TENANT: &str = "common";
+fn get_tenant() -> String {
+    // Check env var first
+    if let Ok(t) = std::env::var("TENANT_ID") {
+        return t;
+    }
+
+    // Then config file
+    if let Some(config) = load_config() {
+        if let Some(t) = config.tenant_id {
+            return t;
+        }
+    }
+
+    // Default
+    "common".to_string()
+}
+
 const SCOPES: &str = "User.Read Chat.ReadWrite Sites.Read.All Files.Read.All offline_access";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,9 +100,23 @@ fn get_token_path() -> Result<PathBuf> {
 }
 
 fn save_token(token: &TokenResponse) -> Result<()> {
+    let mut token_to_save = token.clone();
+
+    // Store refresh_token securely in keyring and remove from file cache
+    if let Some(rt) = &token_to_save.refresh_token {
+        let kr = Entry::new("teams-tui", "refresh-token");
+        if let Err(e) = kr.set_password(rt) {
+            eprintln!("Warning: failed to store refresh token in keyring: {}", e);
+        }
+    }
+    token_to_save.refresh_token = None;
+
     let path = get_token_path()?;
-    let json = serde_json::to_string_pretty(token)?;
-    fs::write(path, json)?;
+    // Write atomically: write to temp then rename
+    let tmp_path = path.with_extension("tmp");
+    let json = serde_json::to_string_pretty(&token_to_save)?;
+    fs::write(&tmp_path, json)?;
+    fs::rename(tmp_path, path)?;
     Ok(())
 }
 
@@ -99,6 +129,14 @@ fn load_token() -> Result<Option<TokenResponse>> {
     let json = fs::read_to_string(path)?;
     let mut token: TokenResponse = serde_json::from_str(&json)?;
 
+    // Try to load refresh token from keyring
+    let kr = Entry::new("teams-tui", "refresh-token");
+    match kr.get_password() {
+        Ok(pwd) => token.refresh_token = Some(pwd),
+        Err(keyring::Error::NoEntry) => {}
+        Err(e) => eprintln!("Warning: failed to read refresh token from keyring: {}", e),
+    }
+
     // Set expires_at based on current time if not set
     if token.expires_at == 0 {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -110,9 +148,10 @@ fn load_token() -> Result<Option<TokenResponse>> {
 
 pub async fn start_device_flow() -> Result<DeviceCodeResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/devicecode",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
@@ -141,9 +180,10 @@ pub async fn start_device_flow() -> Result<DeviceCodeResponse> {
 
 pub async fn poll_for_token(device_code: &str, interval: u64) -> Result<TokenResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
@@ -201,30 +241,22 @@ pub async fn get_valid_token_silent() -> Result<String> {
     anyhow::bail!("No valid token found and refresh failed")
 }
 
+#[allow(dead_code)]
 pub async fn get_access_token() -> Result<String> {
-    // Try to get silent token first
+    // Prefer explicit interactive flow handled by caller to allow UI control
     if let Ok(token) = get_valid_token_silent().await {
         return Ok(token);
     }
 
-    // Need to do full device flow
-    let device_code_response = start_device_flow().await?;
-    println!("\n{}", device_code_response.message);
-    println!("\nWaiting for authentication...\n");
-
-    let token = poll_for_token(
-        &device_code_response.device_code,
-        device_code_response.interval,
-    )
-    .await?;
-    Ok(token.access_token)
+    anyhow::bail!("No valid token available; caller should run device flow interactively")
 }
 
 async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse> {
     let client = reqwest::Client::new();
+    let tenant = get_tenant();
     let url = format!(
         "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
-        TENANT
+        tenant
     );
 
     let client_id = get_client_id();
@@ -244,6 +276,24 @@ async fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse> {
         save_token(&token)?;
         Ok(token)
     } else {
+        // If refresh failed in an unrecoverable way, clear stored refresh token so we don't loop
+        let kr = Entry::new("teams-tui", "refresh-token");
+        let _ = kr.delete_password();
         anyhow::bail!("Failed to refresh token")
     }
+}
+
+#[allow(dead_code)]
+pub fn logout() -> Result<()> {
+    // Remove token file
+    if let Ok(path) = get_token_path() {
+        if path.exists() {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    // Remove keyring entry
+    let kr = Entry::new("teams-tui", "refresh-token");
+    let _ = kr.delete_password();
+    Ok(())
 }
